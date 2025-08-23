@@ -17,6 +17,7 @@ import '../services/agents/battle_system_agent.dart';
 import '../services/agents/achievement_agent.dart';
 import '../services/agents/card_system_agent.dart';
 import '../services/agents/adventure_quest_agent.dart';
+import '../services/agents/location_services_agent.dart';
 import '../data/models/achievement_model.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
@@ -94,6 +95,12 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
   orchestrator.registerAgent(AgentDescriptor(
     name: 'AdventureQuest',
     factory: (b) => AdventureQuestAgent(b),
+    essential: false,
+  ));
+
+  orchestrator.registerAgent(AgentDescriptor(
+    name: 'LocationServices',
+    factory: (b) => LocationServicesAgent(b, updateInterval: const Duration(milliseconds: 100)),
     essential: false,
   ));
 
