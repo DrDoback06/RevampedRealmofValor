@@ -61,6 +61,8 @@ class Character extends Equatable {
     this.xp = 0,
     this.stats = const CharacterStats(),
     this.equipment = const EquipmentSlots(),
+    this.skillPoints = 0,
+    this.unlockedSkills = const <String>[],
   });
 
   final String uid;
@@ -70,10 +72,12 @@ class Character extends Equatable {
   final int xp;
   final CharacterStats stats;
   final EquipmentSlots equipment;
+  final int skillPoints;
+  final List<String> unlockedSkills;
 
   factory Character.fromJson(Map<String, dynamic> json) => _$CharacterFromJson(json);
   Map<String, dynamic> toJson() => _$CharacterToJson(this);
 
   @override
-  List<Object?> get props => [uid, id, name, level, xp, stats, equipment];
+  List<Object?> get props => [uid, id, name, level, xp, stats, equipment, skillPoints, unlockedSkills];
 }

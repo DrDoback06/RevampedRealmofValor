@@ -56,6 +56,12 @@ Character _$CharacterFromJson(Map<String, dynamic> json) => Character(
   equipment: json['equipment'] == null
       ? const EquipmentSlots()
       : EquipmentSlots.fromJson(json['equipment'] as Map<String, dynamic>),
+  skillPoints: (json['skillPoints'] as num?)?.toInt() ?? 0,
+  unlockedSkills:
+      (json['unlockedSkills'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList() ??
+      const <String>[],
 );
 
 Map<String, dynamic> _$CharacterToJson(Character instance) => <String, dynamic>{
@@ -66,4 +72,6 @@ Map<String, dynamic> _$CharacterToJson(Character instance) => <String, dynamic>{
   'xp': instance.xp,
   'stats': instance.stats,
   'equipment': instance.equipment,
+  'skillPoints': instance.skillPoints,
+  'unlockedSkills': instance.unlockedSkills,
 };
