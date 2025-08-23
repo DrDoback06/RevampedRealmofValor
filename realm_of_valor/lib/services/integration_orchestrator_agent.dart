@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 import 'base_agent.dart';
 import 'event_bus.dart';
@@ -21,6 +22,11 @@ class IntegrationOrchestratorAgent extends BaseAgent {
   Duration heartbeatTimeout = const Duration(seconds: 45);
 
   final List<AgentDescriptor> _registry = <AgentDescriptor>[];
+  bool _persistenceOnline = true;
+  String? _activeQuestId;
+
+  VoidCallback? _interceptorDisposer;
+  StreamSubscription<Event>? _errorSub;
 
   void registerAgent(AgentDescriptor descriptor) {
     _registry.add(descriptor);
@@ -31,38 +37,77 @@ class IntegrationOrchestratorAgent extends BaseAgent {
 
   @override
   Future<void> onInitialize() async {
-    // Subscribe to heartbeats
+    // Interceptor: flip connectivity flags synchronously; offline queueing; dynamic priority
+    _interceptorDisposer = bus.addInterceptor((event) {
+      if (event.type == 'persistence.offline') {
+        _persistenceOnline = false;
+        return event;
+      }
+      if (event.type == 'persistence.online') {
+        _persistenceOnline = true;
+        return event;
+      }
+
+      if (_activeQuestId != null && event.type.startsWith('quest.')) {
+        return Event(
+          type: event.type,
+          data: event.data,
+          priority: EventPriority.high,
+          correlationId: event.correlationId,
+          expectsReply: event.expectsReply,
+          timestamp: event.timestamp,
+        );
+      }
+      if (!_persistenceOnline && event.type.startsWith('data.')) {
+        _offlineQueue.add(event);
+        return null;
+      }
+      return event;
+    });
+
+    // Heartbeats
     bus.subscribe('agent.heartbeat', (evt, _) {
       final agent = evt.data?['agent'] as String?;
       if (agent != null) _lastHeartbeat[agent] = DateTime.now();
     });
 
-    // Subscribe to persistence offline/online
+    // Connectivity notifications and replay
     bus.subscribe('persistence.offline', (evt, _) {
-      // Start queueing non-essential events
-      // Orchestrator could set a flag; for simplicity, we just store here
+      bus.publish(Event(type: 'ui.notify', data: {'level': 'warning', 'message': 'Offline mode: changes will sync later.'}));
     });
     bus.subscribe('persistence.online', (evt, _) {
-      // Replay queued events
       for (final e in List<Event>.from(_offlineQueue)) {
         bus.publish(e);
         _offlineQueue.remove(e);
       }
+      bus.publish(Event(type: 'ui.notify', data: {'level': 'info', 'message': 'Back online. Changes synced.'}));
     });
 
-    // Initialize essential agents immediately
+    // Active quest tracking
+    bus.subscribe('quest.active_set', (evt, _) {
+      _activeQuestId = evt.data?['questId'] as String?;
+    });
+
+    // Global error routing via subscription error handler
+    _errorSub = bus.stream.listen((_) {}, onError: (Object error, StackTrace st) {
+      bus.publish(Event(type: 'ui.notify', data: {'level': 'error', 'message': error.toString()}));
+    });
+
+    // Coordinated shutdown
+    bus.subscribe('app.shutdown', (evt, _) async {
+      await onDispose();
+    });
+
     for (final desc in _registry.where((a) => a.essential)) {
       await _startAgent(desc);
     }
 
-    // Lazy-load non-essential agents after a short delay
     Future<void>.delayed(const Duration(milliseconds: 500), () async {
       for (final desc in _registry.where((a) => !a.essential)) {
         await _startAgent(desc);
       }
     });
 
-    // Health monitoring loop
     Timer.periodic(const Duration(seconds: 20), (_) => _checkHealth());
   }
 
@@ -94,7 +139,6 @@ class IntegrationOrchestratorAgent extends BaseAgent {
       final last = _lastHeartbeat[agentName];
       if (last == null) continue;
       if (now.difference(last) > heartbeatTimeout) {
-        // Missed heartbeat; try restart
         entry.value.dispose();
         _scheduleRestart(agentName);
       }
@@ -103,6 +147,8 @@ class IntegrationOrchestratorAgent extends BaseAgent {
 
   @override
   Future<void> onDispose() async {
+    _interceptorDisposer?.call();
+    await _errorSub?.cancel();
     for (final agent in _agents.values) {
       await agent.dispose();
     }

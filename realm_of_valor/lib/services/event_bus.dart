@@ -28,6 +28,8 @@ class Event {
 
 typedef EventHandler = FutureOr<void> Function(Event event, EventBus bus);
 
+typedef EventInterceptor = Event? Function(Event event);
+
 class _Subscriber {
   _Subscriber(this.type, this.handler);
   final String type;
@@ -39,11 +41,16 @@ class EventBus {
   final List<Event> _queue = <Event>[];
   bool _draining = false;
 
+  final List<EventInterceptor> _interceptors = <EventInterceptor>[];
+
   StreamController<Event> get _streamController => _controller ??= StreamController<Event>.broadcast();
   StreamController<Event>? _controller;
 
   void dispose() {
     _controller?.close();
+    _interceptors.clear();
+    _subscribers.clear();
+    _queue.clear();
   }
 
   Stream<Event> get stream => _streamController.stream;
@@ -54,8 +61,23 @@ class EventBus {
     return () => _subscribers.remove(sub);
   }
 
+  VoidCallback addInterceptor(EventInterceptor interceptor) {
+    _interceptors.add(interceptor);
+    return () => _interceptors.remove(interceptor);
+  }
+
   void publish(Event event) {
-    _queue.add(event);
+    var current = event;
+    for (final interceptor in List<EventInterceptor>.from(_interceptors)) {
+      final result = interceptor(current);
+      if (result == null) {
+        // Dropped by interceptor
+        return;
+      }
+      current = result;
+    }
+
+    _queue.add(current);
     _scheduleDrain();
   }
 
@@ -106,7 +128,6 @@ class EventBus {
 
   Future<void> _drain() async {
     try {
-      // Sort by priority then timestamp (stable order for FIFO within priority)
       _queue.sort((a, b) {
         final p = a.priority.index.compareTo(b.priority.index);
         if (p != 0) return p;
@@ -115,13 +136,11 @@ class EventBus {
 
       while (_queue.isNotEmpty) {
         final next = _queue.removeAt(0);
-        // Deliver to matching subscribers
         for (final sub in List<_Subscriber>.from(_subscribers)) {
           if (sub.type == next.type) {
             try {
               await sub.handler(next, this);
             } catch (e, st) {
-              // Also forward error to stream for optional global listeners
               _streamController.addError(e, st);
             }
           }
