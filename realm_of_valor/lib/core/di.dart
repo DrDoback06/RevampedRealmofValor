@@ -7,10 +7,12 @@ import '../domain/cards/card_repository.dart';
 import '../domain/characters/character_repository.dart';
 import '../domain/inventory/inventory_repository.dart';
 import '../domain/quests/quest_repository.dart';
+import '../integration/fitness_service.dart';
 import '../services/event_bus.dart';
 import '../services/integration_orchestrator_agent.dart';
 import '../services/agents/character_management_agent.dart';
 import '../services/agents/data_persistence_agent.dart';
+import '../services/agents/fitness_tracking_agent.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
   return FirebaseFirestore.instance;
@@ -22,6 +24,11 @@ final firebaseServiceProvider = Provider<FirebaseService>((ref) {
 
 final localStoreProvider = FutureProvider<LocalStore>((ref) async {
   return LocalStore.create();
+});
+
+final fitnessServiceProvider = Provider<FitnessService>((ref) {
+  // Replace with platform health integrations later
+  return StubFitnessService();
 });
 
 final eventBusProvider = Provider<EventBus>((ref) {
@@ -44,8 +51,8 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
     ));
   }
 
-  // Character
-  final characterAgent = AgentDescriptor(
+  // Character (essential)
+  orchestrator.registerAgent(AgentDescriptor(
     name: 'CharacterManagement',
     factory: (b) => CharacterManagementAgent(
       b,
@@ -53,8 +60,14 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
       inventoryRepo: ref.read(inventoryRepositoryProvider),
     ),
     essential: true,
-  );
-  orchestrator.registerAgent(characterAgent);
+  ));
+
+  // Fitness (non-essential)
+  orchestrator.registerAgent(AgentDescriptor(
+    name: 'FitnessTracking',
+    factory: (b) => FitnessTrackingAgent(b, service: ref.read(fitnessServiceProvider)),
+    essential: false,
+  ));
 
   return orchestrator;
 });
