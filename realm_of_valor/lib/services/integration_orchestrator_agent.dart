@@ -27,6 +27,7 @@ class IntegrationOrchestratorAgent extends BaseAgent {
 
   VoidCallback? _interceptorDisposer;
   StreamSubscription<Event>? _errorSub;
+  Timer? _healthTimer;
 
   void registerAgent(AgentDescriptor descriptor) {
     _registry.add(descriptor);
@@ -37,7 +38,6 @@ class IntegrationOrchestratorAgent extends BaseAgent {
 
   @override
   Future<void> onInitialize() async {
-    // Interceptor: flip connectivity flags synchronously; offline queueing; dynamic priority
     _interceptorDisposer = bus.addInterceptor((event) {
       if (event.type == 'persistence.offline') {
         _persistenceOnline = false;
@@ -65,13 +65,11 @@ class IntegrationOrchestratorAgent extends BaseAgent {
       return event;
     });
 
-    // Heartbeats
     bus.subscribe('agent.heartbeat', (evt, _) {
       final agent = evt.data?['agent'] as String?;
       if (agent != null) _lastHeartbeat[agent] = DateTime.now();
     });
 
-    // Connectivity notifications and replay
     bus.subscribe('persistence.offline', (evt, _) {
       bus.publish(Event(type: 'ui.notify', data: {'level': 'warning', 'message': 'Offline mode: changes will sync later.'}));
     });
@@ -83,17 +81,14 @@ class IntegrationOrchestratorAgent extends BaseAgent {
       bus.publish(Event(type: 'ui.notify', data: {'level': 'info', 'message': 'Back online. Changes synced.'}));
     });
 
-    // Active quest tracking
     bus.subscribe('quest.active_set', (evt, _) {
       _activeQuestId = evt.data?['questId'] as String?;
     });
 
-    // Global error routing via subscription error handler
     _errorSub = bus.stream.listen((_) {}, onError: (Object error, StackTrace st) {
       bus.publish(Event(type: 'ui.notify', data: {'level': 'error', 'message': error.toString()}));
     });
 
-    // Coordinated shutdown
     bus.subscribe('app.shutdown', (evt, _) async {
       await onDispose();
     });
@@ -109,6 +104,23 @@ class IntegrationOrchestratorAgent extends BaseAgent {
     });
 
     Timer.periodic(const Duration(seconds: 20), (_) => _checkHealth());
+
+    // Periodic health summary
+    _healthTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final stats = bus.getStats();
+      final now = DateTime.now();
+      final lateAgents = _lastHeartbeat.entries
+          .where((e) => now.difference(e.value) > heartbeatTimeout)
+          .map((e) => e.key)
+          .toList();
+      bus.publish(Event(type: 'orchestrator.health', data: {
+        'queue_len': stats.queueLength,
+        'drops': stats.droppedTotal,
+        'drops_by_type': stats.droppedByType,
+        'late_agents': lateAgents,
+        'registry_size': _registry.length,
+      }));
+    });
   }
 
   Future<void> _startAgent(AgentDescriptor desc) async {
@@ -149,6 +161,7 @@ class IntegrationOrchestratorAgent extends BaseAgent {
   Future<void> onDispose() async {
     _interceptorDisposer?.call();
     await _errorSub?.cancel();
+    _healthTimer?.cancel();
     for (final agent in _agents.values) {
       await agent.dispose();
     }

@@ -30,10 +30,19 @@ typedef EventHandler = FutureOr<void> Function(Event event, EventBus bus);
 
 typedef EventInterceptor = Event? Function(Event event);
 
+typedef EventSchema = bool Function(Map<String, dynamic>? data);
+
 class _Subscriber {
   _Subscriber(this.type, this.handler);
   final String type;
   final EventHandler handler;
+}
+
+class EventBusStats {
+  EventBusStats({required this.queueLength, required this.droppedTotal, required this.droppedByType});
+  final int queueLength;
+  final int droppedTotal;
+  final Map<String, int> droppedByType;
 }
 
 class EventBus {
@@ -42,6 +51,11 @@ class EventBus {
   bool _draining = false;
 
   final List<EventInterceptor> _interceptors = <EventInterceptor>[];
+  final Map<String, EventSchema> _schemas = <String, EventSchema>{};
+
+  int _maxQueueSize = 1000;
+  int _dropped = 0;
+  final Map<String, int> _dropsByType = <String, int>{};
 
   StreamController<Event> get _streamController => _controller ??= StreamController<Event>.broadcast();
   StreamController<Event>? _controller;
@@ -51,6 +65,7 @@ class EventBus {
     _interceptors.clear();
     _subscribers.clear();
     _queue.clear();
+    _schemas.clear();
   }
 
   Stream<Event> get stream => _streamController.stream;
@@ -66,15 +81,56 @@ class EventBus {
     return () => _interceptors.remove(interceptor);
   }
 
+  void registerSchema(String type, EventSchema schema) {
+    _schemas[type] = schema;
+  }
+
+  void setMaxQueueSize(int size) {
+    _maxQueueSize = size.clamp(100, 100000);
+  }
+
+  EventBusStats getStats() => EventBusStats(
+        queueLength: _queue.length,
+        droppedTotal: _dropped,
+        droppedByType: Map<String, int>.from(_dropsByType),
+      );
+
   void publish(Event event) {
     var current = event;
+
+    // Interceptors
     for (final interceptor in List<EventInterceptor>.from(_interceptors)) {
       final result = interceptor(current);
       if (result == null) {
-        // Dropped by interceptor
+        _recordDrop(current);
         return;
       }
       current = result;
+    }
+
+    // Optional schema validation
+    final schema = _schemas[current.type];
+    if (schema != null && !schema(current.data)) {
+      _recordDrop(current);
+      return;
+    }
+
+    // Backpressure: if queue is full, drop low-priority or oldest
+    if (_queue.length >= _maxQueueSize) {
+      final idxLow = _queue.indexWhere((e) => e.priority == EventPriority.low);
+      if (idxLow != -1) {
+        _recordDrop(_queue[idxLow]);
+        _queue.removeAt(idxLow);
+      } else if (current.priority == EventPriority.low) {
+        _recordDrop(current);
+        return;
+      } else {
+        // make room by dropping the oldest non-critical if possible
+        final idxNonCritical = _queue.indexWhere((e) => e.priority != EventPriority.critical);
+        final dropIdx = idxNonCritical != -1 ? idxNonCritical : 0;
+        _recordDrop(_queue[dropIdx]);
+        _queue.removeAt(dropIdx);
+      }
     }
 
     _queue.add(current);
@@ -118,6 +174,11 @@ class EventBus {
       correlationId: request.correlationId,
       priority: request.priority,
     ));
+  }
+
+  void _recordDrop(Event e) {
+    _dropped += 1;
+    _dropsByType.update(e.type, (v) => v + 1, ifAbsent: () => 1);
   }
 
   void _scheduleDrain() {
