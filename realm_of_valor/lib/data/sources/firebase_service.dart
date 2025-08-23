@@ -1,10 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class FirebaseService {
+abstract class PersistenceStore {
+  Future<void> setData({required String path, required Map<String, dynamic> data, bool merge = true});
+  Future<Map<String, dynamic>?> getDocument({required String path});
+}
+
+class FirebaseService implements PersistenceStore {
   FirebaseService(this._db);
 
   final FirebaseFirestore _db;
 
+  @override
   Future<void> setData({required String path, required Map<String, dynamic> data, bool merge = true}) async {
     final ref = _db.doc(path);
     await ref.set(data, SetOptions(merge: merge));
@@ -15,6 +21,7 @@ class FirebaseService {
     await ref.delete();
   }
 
+  @override
   Future<Map<String, dynamic>?> getDocument({required String path}) async {
     final ref = _db.doc(path);
     final snap = await ref.get();

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/sources/firebase_service.dart';
+import '../data/sources/local_store.dart';
 import '../domain/cards/card_repository.dart';
 import '../domain/characters/character_repository.dart';
 import '../domain/inventory/inventory_repository.dart';
@@ -9,6 +10,7 @@ import '../domain/quests/quest_repository.dart';
 import '../services/event_bus.dart';
 import '../services/integration_orchestrator_agent.dart';
 import '../services/agents/character_management_agent.dart';
+import '../services/agents/data_persistence_agent.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
   return FirebaseFirestore.instance;
@@ -16,6 +18,10 @@ final firestoreProvider = Provider<FirebaseFirestore>((ref) {
 
 final firebaseServiceProvider = Provider<FirebaseService>((ref) {
   return FirebaseService(ref.watch(firestoreProvider));
+});
+
+final localStoreProvider = FutureProvider<LocalStore>((ref) async {
+  return LocalStore.create();
 });
 
 final eventBusProvider = Provider<EventBus>((ref) {
@@ -28,7 +34,17 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
   final bus = ref.watch(eventBusProvider);
   final orchestrator = IntegrationOrchestratorAgent(bus);
 
-  // Register agents
+  // DataPersistence (essential)
+  final local = ref.read(localStoreProvider).maybeWhen(data: (v) => v, orElse: () => null);
+  if (local != null) {
+    orchestrator.registerAgent(AgentDescriptor(
+      name: 'DataPersistence',
+      factory: (b) => DataPersistenceAgent(b, firebase: ref.read(firebaseServiceProvider), local: local),
+      essential: true,
+    ));
+  }
+
+  // Character
   final characterAgent = AgentDescriptor(
     name: 'CharacterManagement',
     factory: (b) => CharacterManagementAgent(

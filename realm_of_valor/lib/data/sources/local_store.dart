@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class LocalStore {
   LocalStore(this._prefs);
 
-  final SharedPreferences _prefs;
+  final SharedPreferences? _prefs;
 
   static Future<LocalStore> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -13,11 +13,15 @@ class LocalStore {
   }
 
   Future<void> setJson(String key, Map<String, dynamic> value) async {
-    await _prefs.setString(key, jsonEncode(value));
+    final prefs = _prefs;
+    if (prefs == null) return;
+    await prefs.setString(key, jsonEncode(value));
   }
 
   Map<String, dynamic>? getJson(String key) {
-    final raw = _prefs.getString(key);
+    final prefs = _prefs;
+    if (prefs == null) return null;
+    final raw = prefs.getString(key);
     if (raw == null) return null;
     return jsonDecode(raw) as Map<String, dynamic>;
   }
