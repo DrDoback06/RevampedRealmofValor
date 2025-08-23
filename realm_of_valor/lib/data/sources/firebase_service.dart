@@ -28,6 +28,15 @@ class FirebaseService implements PersistenceStore {
     return snap.data();
   }
 
+  Future<void> batchSet(List<({String path, Map<String, dynamic> data, bool merge})> ops) async {
+    final batch = _db.batch();
+    for (final op in ops) {
+      final ref = _db.doc(op.path);
+      batch.set(ref, op.data, SetOptions(merge: op.merge));
+    }
+    await batch.commit();
+  }
+
   Future<List<Map<String, dynamic>>> getCollection({required String path}) async {
     final ref = _db.collection(path);
     final snap = await ref.get();

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:realm_of_valor/data/sources/firebase_service.dart';
 import 'package:realm_of_valor/data/sources/local_store.dart';
@@ -19,19 +20,12 @@ class MemoryLocalStore extends LocalStore {
   final Map<String, String> map;
   @override
   Future<void> setJson(String key, Map<String, dynamic> value) async {
-    map[key] = _encode(value);
+    map[key] = jsonEncode(value);
   }
   @override
   Map<String, dynamic>? getJson(String key) {
     final v = map[key];
-    return v == null ? null : _decode(v);
-  }
-  String _encode(Map<String, dynamic> v) => v.toString();
-  Map<String, dynamic> _decode(String s) {
-    final inner = s.substring(1, s.length - 1);
-    if (inner.trim().isEmpty) return {};
-    final parts = inner.split(':');
-    return {parts[0].trim(): int.parse(parts[1].trim())};
+    return v == null ? null : Map<String, dynamic>.from(jsonDecode(v) as Map);
   }
 }
 
