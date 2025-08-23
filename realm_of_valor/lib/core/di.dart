@@ -15,6 +15,7 @@ import '../services/agents/data_persistence_agent.dart';
 import '../services/agents/fitness_tracking_agent.dart';
 import '../services/agents/battle_system_agent.dart';
 import '../services/agents/achievement_agent.dart';
+import '../services/agents/card_system_agent.dart';
 import '../data/models/achievement_model.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
@@ -80,6 +81,12 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
       AchievementDefinition(id: 'first_win', title: 'First Victory', eventType: 'battle_ended', threshold: 1, rewardXp: 20),
       AchievementDefinition(id: 'step_starter', title: 'Step Starter', eventType: 'fitness_goal_reached', threshold: 1, rewardXp: 10),
     ]),
+    essential: false,
+  ));
+
+  orchestrator.registerAgent(AgentDescriptor(
+    name: 'CardSystem',
+    factory: (b) => CardSystemAgent(b),
     essential: false,
   ));
 
