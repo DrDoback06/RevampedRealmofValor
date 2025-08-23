@@ -13,6 +13,7 @@ import '../services/integration_orchestrator_agent.dart';
 import '../services/agents/character_management_agent.dart';
 import '../services/agents/data_persistence_agent.dart';
 import '../services/agents/fitness_tracking_agent.dart';
+import '../services/agents/battle_system_agent.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
   return FirebaseFirestore.instance;
@@ -27,7 +28,6 @@ final localStoreProvider = FutureProvider<LocalStore>((ref) async {
 });
 
 final fitnessServiceProvider = Provider<FitnessService>((ref) {
-  // Replace with platform health integrations later
   return StubFitnessService();
 });
 
@@ -41,7 +41,6 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
   final bus = ref.watch(eventBusProvider);
   final orchestrator = IntegrationOrchestratorAgent(bus);
 
-  // DataPersistence (essential)
   final local = ref.read(localStoreProvider).maybeWhen(data: (v) => v, orElse: () => null);
   if (local != null) {
     orchestrator.registerAgent(AgentDescriptor(
@@ -51,7 +50,6 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
     ));
   }
 
-  // Character (essential)
   orchestrator.registerAgent(AgentDescriptor(
     name: 'CharacterManagement',
     factory: (b) => CharacterManagementAgent(
@@ -62,10 +60,15 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
     essential: true,
   ));
 
-  // Fitness (non-essential)
   orchestrator.registerAgent(AgentDescriptor(
     name: 'FitnessTracking',
     factory: (b) => FitnessTrackingAgent(b, service: ref.read(fitnessServiceProvider)),
+    essential: false,
+  ));
+
+  orchestrator.registerAgent(AgentDescriptor(
+    name: 'BattleSystem',
+    factory: (b) => BattleSystemAgent(b),
     essential: false,
   ));
 
