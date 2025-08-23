@@ -8,6 +8,7 @@ import '../domain/inventory/inventory_repository.dart';
 import '../domain/quests/quest_repository.dart';
 import '../services/event_bus.dart';
 import '../services/integration_orchestrator_agent.dart';
+import '../services/agents/character_management_agent.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
   return FirebaseFirestore.instance;
@@ -26,7 +27,19 @@ final eventBusProvider = Provider<EventBus>((ref) {
 final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
   final bus = ref.watch(eventBusProvider);
   final orchestrator = IntegrationOrchestratorAgent(bus);
-  // Register agents here as they are implemented
+
+  // Register agents
+  final characterAgent = AgentDescriptor(
+    name: 'CharacterManagement',
+    factory: (b) => CharacterManagementAgent(
+      b,
+      characterRepo: ref.read(characterRepositoryProvider),
+      inventoryRepo: ref.read(inventoryRepositoryProvider),
+    ),
+    essential: true,
+  );
+  orchestrator.registerAgent(characterAgent);
+
   return orchestrator;
 });
 
