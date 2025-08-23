@@ -21,6 +21,7 @@ import '../services/agents/adventure_quest_agent.dart';
 import '../services/agents/location_services_agent.dart';
 import '../services/agents/ui_ux_agent.dart';
 import '../services/agents/weather_integration_agent.dart';
+import '../services/agents/audio_agent.dart';
 import '../data/models/achievement_model.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
@@ -120,6 +121,12 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
   orchestrator.registerAgent(AgentDescriptor(
     name: 'WeatherIntegration',
     factory: (b) => WeatherIntegrationAgent(b, service: ref.read(weatherServiceProvider)),
+    essential: false,
+  ));
+
+  orchestrator.registerAgent(AgentDescriptor(
+    name: 'Audio',
+    factory: (b) => AudioAgent(b),
     essential: false,
   ));
 
