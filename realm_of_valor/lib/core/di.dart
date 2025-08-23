@@ -16,6 +16,7 @@ import '../services/agents/fitness_tracking_agent.dart';
 import '../services/agents/battle_system_agent.dart';
 import '../services/agents/achievement_agent.dart';
 import '../services/agents/card_system_agent.dart';
+import '../services/agents/adventure_quest_agent.dart';
 import '../data/models/achievement_model.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
@@ -87,6 +88,12 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
   orchestrator.registerAgent(AgentDescriptor(
     name: 'CardSystem',
     factory: (b) => CardSystemAgent(b),
+    essential: false,
+  ));
+
+  orchestrator.registerAgent(AgentDescriptor(
+    name: 'AdventureQuest',
+    factory: (b) => AdventureQuestAgent(b),
     essential: false,
   ));
 
