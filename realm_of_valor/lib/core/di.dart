@@ -8,6 +8,7 @@ import '../domain/characters/character_repository.dart';
 import '../domain/inventory/inventory_repository.dart';
 import '../domain/quests/quest_repository.dart';
 import '../integration/fitness_service.dart';
+import '../integration/weather_service.dart';
 import '../services/event_bus.dart';
 import '../services/integration_orchestrator_agent.dart';
 import '../services/agents/character_management_agent.dart';
@@ -19,6 +20,7 @@ import '../services/agents/card_system_agent.dart';
 import '../services/agents/adventure_quest_agent.dart';
 import '../services/agents/location_services_agent.dart';
 import '../services/agents/ui_ux_agent.dart';
+import '../services/agents/weather_integration_agent.dart';
 import '../data/models/achievement_model.dart';
 
 final firestoreProvider = Provider<FirebaseFirestore>((ref) {
@@ -35,6 +37,10 @@ final localStoreProvider = FutureProvider<LocalStore>((ref) async {
 
 final fitnessServiceProvider = Provider<FitnessService>((ref) {
   return StubFitnessService();
+});
+
+final weatherServiceProvider = Provider<WeatherService>((ref) {
+  return StubWeatherService();
 });
 
 final eventBusProvider = Provider<EventBus>((ref) {
@@ -108,6 +114,12 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
   orchestrator.registerAgent(AgentDescriptor(
     name: 'UIUX',
     factory: (b) => UIUXAgent(b),
+    essential: false,
+  ));
+
+  orchestrator.registerAgent(AgentDescriptor(
+    name: 'WeatherIntegration',
+    factory: (b) => WeatherIntegrationAgent(b, service: ref.read(weatherServiceProvider)),
     essential: false,
   ));
 
