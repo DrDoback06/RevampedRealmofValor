@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:math';
 import 'dart:async';
 import '../../../data/models/character_model.dart';
@@ -9,6 +10,7 @@ import '../../../services/event_bus.dart';
 import '../../../core/di.dart';
 import '../character/providers.dart';
 import '../inventory/providers.dart';
+import 'battle_models.dart';
 
 class EnhancedBattleScreen extends ConsumerStatefulWidget {
   final String enemyId;
@@ -41,6 +43,11 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
   Timer? _turnTimer;
   int _timeRemaining = 60; // 1 minute per turn
   
+  // Battle phases
+  BattlePhase _currentPhase = BattlePhase.draw;
+  int _phaseTimeRemaining = 10; // 10 seconds per phase
+  Timer? _phaseTimer;
+  
   // Player state
   int _playerHp = 100;
   int _playerMana = 10;
@@ -48,6 +55,14 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
   List<GameCard> _playerHand = [];
   List<GameCard> _loadedCards = [];
   List<GameCard> _actionCards = [];
+  
+  // Deck management
+  List<GameCard> _playerDeck = [];
+  List<GameCard> _playerDiscardPile = [];
+  List<GameCard> _enemyDeck = [];
+  List<GameCard> _enemyDiscardPile = [];
+  int _cardsDrawnThisTurn = 0;
+  int _maxCardsPerTurn = 3;
   
   // Enemy state
   int _enemyHp = 100;
@@ -61,6 +76,52 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
   // Battle log
   final List<String> _battleLog = [];
   final Random _random = Random();
+  
+  // Battle animations and effects
+  bool _isAnimating = false;
+  List<AnimationEffect> _activeAnimations = [];
+  Map<String, AnimationController> _animationControllers = {};
+  bool _showDamageNumbers = true;
+  bool _showParticleEffects = true;
+  
+  // Battle settings
+  bool _autoPlayEnabled = false;
+  bool _fastModeEnabled = false;
+  bool _showBattleTips = true;
+  int _turnTimeLimit = 60;
+  bool _allowUndo = true;
+  
+  // Tutorial and help
+  bool _showTutorial = true;
+  int _tutorialStep = 0;
+  List<String> _tutorialSteps = [
+    'Welcome to the battle system! This is a card-based combat game.',
+    'You have two types of cards: Action cards (red) and Skill cards (blue).',
+    'Action cards are free to play and provide basic attacks.',
+    'Skill cards cost mana and have powerful effects.',
+    'Use your cards strategically to defeat the enemy!',
+    'Watch your health and mana bars at the top.',
+    'The enemy will play cards during their turn.',
+    'Good luck, warrior!',
+  ];
+  
+  // Battle statistics
+  BattleStatistics _battleStats = BattleStatistics(
+    turnsPlayed: 0,
+    cardsPlayed: 0,
+    damageDealt: 0,
+    damageTaken: 0,
+    healingDone: 0,
+    manaSpent: 0,
+    specialEffectsUsed: [],
+    battleStartTime: DateTime.now(),
+  );
+  
+  // Battle replay
+  List<BattleAction> _battleActions = [];
+  bool _isReplayMode = false;
+  int _replayIndex = 0;
+  Timer? _replayTimer;
 
   @override
   void initState() {
@@ -101,14 +162,188 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
   void _dealInitialHands() {
     _logDebug('Dealing initial hands');
 
+    // Initialize decks
+    _initializeDecks();
+
     // Deal 5 action cards to each player
     _actionCards = _generateActionCards(5);
     _enemyHand = _generateActionCards(5);
 
     // Deal 5 skill/inventory cards to player
-    _playerHand = _generateSkillCards(5);
+    _playerHand = _drawCardsFromDeck(5);
 
     _addToLog('Dealt 5 action cards and 5 skill cards');
+  }
+  
+  void _initializeDecks() {
+    // Create player deck from inventory
+    final inventory = ref.read(inventoryStreamProvider).value;
+    if (inventory != null) {
+      final cardDatabase = ref.read(cardDatabaseProvider).value ?? [];
+      
+      for (final cardInstance in inventory.items) {
+        final card = cardDatabase.firstWhere(
+          (card) => card.id == cardInstance.cardId,
+          orElse: () => GameCard(
+            id: 'default',
+            name: 'Default Card',
+            description: 'A default card',
+            type: CardType.spell,
+            rarity: CardRarity.common,
+            element: CardElement.none,
+            manaCost: 1,
+            stats: {'damage': 10},
+          ),
+        );
+        
+        // Add multiple copies based on inventory count
+        for (int i = 0; i < cardInstance.quantity; i++) {
+          _playerDeck.add(card);
+        }
+      }
+    }
+    
+    // Shuffle player deck
+    _playerDeck.shuffle(_random);
+    
+    // Create enemy deck based on enemy type
+    _enemyDeck = _generateEnemyDeck();
+    _enemyDeck.shuffle(_random);
+    
+    _addToLog('Decks initialized - Player: ${_playerDeck.length}, Enemy: ${_enemyDeck.length}');
+  }
+  
+  List<GameCard> _generateEnemyDeck() {
+    final enemyType = widget.enemyName.toLowerCase();
+    final deck = <GameCard>[];
+    
+    if (enemyType.contains('goblin')) {
+      deck.addAll(_generateGoblinDeck());
+    } else if (enemyType.contains('dragon')) {
+      deck.addAll(_generateDragonDeck());
+    } else if (enemyType.contains('wizard')) {
+      deck.addAll(_generateWizardDeck());
+    } else {
+      deck.addAll(_generateGenericDeck());
+    }
+    
+    return deck;
+  }
+  
+  List<GameCard> _generateGoblinDeck() {
+    return [
+      GameCard(
+        id: 'goblin_attack',
+        name: 'Goblin Strike',
+        description: 'A quick attack',
+        type: CardType.spell,
+        rarity: CardRarity.common,
+        element: CardElement.none,
+        manaCost: 1,
+        stats: {'damage': 8},
+      ),
+      GameCard(
+        id: 'goblin_poison',
+        name: 'Poison Dart',
+        description: 'Poisonous attack',
+        type: CardType.spell,
+        rarity: CardRarity.uncommon,
+        element: CardElement.nature,
+        manaCost: 2,
+        stats: {'damage': 5, 'effect': 'poison', 'duration': 3},
+      ),
+    ];
+  }
+  
+  List<GameCard> _generateDragonDeck() {
+    return [
+      GameCard(
+        id: 'dragon_breath',
+        name: 'Dragon Breath',
+        description: 'Fiery breath attack',
+        type: CardType.spell,
+        rarity: CardRarity.rare,
+        element: CardElement.fire,
+        manaCost: 3,
+        stats: {'damage': 15},
+      ),
+      GameCard(
+        id: 'dragon_wing',
+        name: 'Wing Buffet',
+        description: 'Powerful wing attack',
+        type: CardType.spell,
+        rarity: CardRarity.uncommon,
+        element: CardElement.none,
+        manaCost: 2,
+        stats: {'damage': 12, 'effect': 'stun', 'duration': 1},
+      ),
+    ];
+  }
+  
+  List<GameCard> _generateWizardDeck() {
+    return [
+      GameCard(
+        id: 'wizard_fireball',
+        name: 'Fireball',
+        description: 'Explosive fire magic',
+        type: CardType.spell,
+        rarity: CardRarity.rare,
+        element: CardElement.fire,
+        manaCost: 3,
+        stats: {'damage': 18},
+      ),
+      GameCard(
+        id: 'wizard_heal',
+        name: 'Healing Light',
+        description: 'Restore health',
+        type: CardType.spell,
+        rarity: CardRarity.uncommon,
+        element: CardElement.light,
+        manaCost: 2,
+        stats: {'healing': 10},
+      ),
+    ];
+  }
+  
+  List<GameCard> _generateGenericDeck() {
+    return [
+      GameCard(
+        id: 'basic_attack',
+        name: 'Basic Attack',
+        description: 'A basic attack',
+        type: CardType.spell,
+        rarity: CardRarity.common,
+        element: CardElement.none,
+        manaCost: 1,
+        stats: {'damage': 10},
+      ),
+    ];
+  }
+  
+  List<GameCard> _drawCardsFromDeck(int count) {
+    final drawnCards = <GameCard>[];
+    
+    for (int i = 0; i < count; i++) {
+      if (_playerDeck.isNotEmpty) {
+        drawnCards.add(_playerDeck.removeLast());
+      } else if (_playerDiscardPile.isNotEmpty) {
+        // Reshuffle discard pile into deck
+        _playerDeck.addAll(_playerDiscardPile);
+        _playerDiscardPile.clear();
+        _playerDeck.shuffle(_random);
+        
+        if (_playerDeck.isNotEmpty) {
+          drawnCards.add(_playerDeck.removeLast());
+        }
+      }
+    }
+    
+    return drawnCards;
+  }
+  
+  void _discardCard(GameCard card) {
+    _playerDiscardPile.add(card);
+    _addToLog('Card discarded: ${card.name}');
   }
 
   List<GameCard> _generateActionCards(int count) {
@@ -231,6 +466,7 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
 
   void _endTurn() {
     _turnTimer?.cancel();
+    _phaseTimer?.cancel();
 
     if (_isPlayerTurn) {
       _isPlayerTurn = false;
@@ -245,13 +481,73 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
       _turnNumber++;
       _addToLog('Turn $_turnNumber - Your turn!');
 
-      // Draw a card
-      _drawCard();
-
-      // Apply lasting effects
-      _applyLastingEffects();
-
-      _startTurnTimer();
+      // Start new turn with phases
+      _startNewTurn();
+    }
+  }
+  
+  void _startNewTurn() {
+    _currentPhase = BattlePhase.draw;
+    _phaseTimeRemaining = 10;
+    _cardsDrawnThisTurn = 0;
+    
+    // Apply lasting effects
+    _applyLastingEffects();
+    
+    // Start phase timer
+    _startPhaseTimer();
+    
+    _addToLog('Draw phase - Draw up to $_maxCardsPerTurn cards');
+  }
+  
+  void _startPhaseTimer() {
+    _phaseTimer?.cancel();
+    _phaseTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_battleEnded) {
+        timer.cancel();
+        return;
+      }
+      
+      setState(() {
+        _phaseTimeRemaining--;
+      });
+      
+      if (_phaseTimeRemaining <= 0) {
+        _advancePhase();
+      }
+    });
+  }
+  
+  void _advancePhase() {
+    switch (_currentPhase) {
+      case BattlePhase.draw:
+        _currentPhase = BattlePhase.action;
+        _phaseTimeRemaining = 30;
+        _addToLog('Action phase - Play your cards!');
+        break;
+      case BattlePhase.action:
+        _currentPhase = BattlePhase.end;
+        _phaseTimeRemaining = 5;
+        _addToLog('End phase - Turn ending...');
+        break;
+      case BattlePhase.end:
+        _endTurn();
+        return;
+    }
+    
+    setState(() {});
+  }
+  
+  void _drawCard() {
+    if (_cardsDrawnThisTurn < _maxCardsPerTurn && _playerDeck.isNotEmpty) {
+      final newCard = _drawCardsFromDeck(1).firstOrNull;
+      if (newCard != null) {
+        setState(() {
+          _playerHand.add(newCard);
+          _cardsDrawnThisTurn++;
+        });
+        _addToLog('Drew: ${newCard.name}');
+      }
     }
   }
 
@@ -299,11 +595,26 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
 
     _addToLog('Enemy is thinking...');
 
-    // Simple AI: prioritize attacks when low on HP, use buffs early
-    final enemyCard = _enemyHand.isNotEmpty ? _enemyHand.first : null;
-    if (enemyCard != null) {
-      _enemyHand.removeAt(0);
-      _playCard(enemyCard, isEnemy: true);
+    // Advanced AI decision making
+    final decision = _makeEnemyDecision();
+    
+    if (decision.card != null) {
+      switch (decision.type) {
+        case EnemyActionType.attack:
+          _executeEnemyAttack(decision.card!);
+          break;
+        case EnemyActionType.defend:
+          _executeEnemyDefense(decision.card!);
+          break;
+        case EnemyActionType.heal:
+          _executeEnemyHeal(decision.card!);
+          break;
+        case EnemyActionType.special:
+          _executeEnemySpecial(decision.card!);
+          break;
+      }
+    } else {
+      _addToLog('Enemy has no suitable cards to play');
     }
 
     // End enemy turn after a delay
@@ -313,15 +624,412 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
       }
     });
   }
+  
+  EnemyDecision _makeEnemyDecision() {
+    final enemyType = widget.enemyName.toLowerCase();
+    final currentHp = _enemyHp;
+    final maxHp = widget.enemyHp;
+    final availableCards = List<GameCard>.from(_enemyHand);
+    
+    // Calculate threat level
+    final threatLevel = _calculateThreatLevel();
+    final healthPercentage = currentHp / maxHp;
+    
+    // Different AI strategies based on enemy type
+    if (enemyType.contains('goblin')) {
+      return _goblinAI(availableCards, threatLevel, healthPercentage);
+    } else if (enemyType.contains('dragon')) {
+      return _dragonAI(availableCards, threatLevel, healthPercentage);
+    } else if (enemyType.contains('wizard')) {
+      return _wizardAI(availableCards, threatLevel, healthPercentage);
+    } else {
+      return _genericAI(availableCards, threatLevel, healthPercentage);
+    }
+  }
+  
+  double _calculateThreatLevel() {
+    final playerDamage = _playerHand.fold<int>(0, (sum, card) {
+      final damage = card.stats?['damage'] as int? ?? 0;
+      return sum + damage;
+    });
+    
+    final playerHealing = _playerHand.fold<int>(0, (sum, card) {
+      final healing = card.stats?['healing'] as int? ?? 0;
+      return sum + healing;
+    });
+    
+    return (playerDamage - playerHealing) / 100.0;
+  }
+  
+  EnemyDecision _goblinAI(List<GameCard> cards, double threatLevel, double healthPercentage) {
+    // Goblins are aggressive and unpredictable
+    if (healthPercentage < 0.3 && _hasHealingCard(cards)) {
+      return EnemyDecision(
+        type: EnemyActionType.heal,
+        card: _findBestHealingCard(cards),
+        priority: 1,
+      );
+    }
+    
+    // High threat level - go aggressive
+    if (threatLevel > 0.5) {
+      return EnemyDecision(
+        type: EnemyActionType.attack,
+        card: _findHighestDamageCard(cards),
+        priority: 2,
+      );
+    }
+    
+    // Random aggressive behavior
+    if (_random.nextDouble() < 0.7) {
+      return EnemyDecision(
+        type: EnemyActionType.attack,
+        card: _findRandomAttackCard(cards),
+        priority: 3,
+      );
+    }
+    
+    return EnemyDecision(
+      type: EnemyActionType.defend,
+      card: _findDefenseCard(cards),
+      priority: 4,
+    );
+  }
+  
+  EnemyDecision _dragonAI(List<GameCard> cards, double threatLevel, double healthPercentage) {
+    // Dragons are powerful but strategic
+    if (healthPercentage < 0.5 && _hasHealingCard(cards)) {
+      return EnemyDecision(
+        type: EnemyActionType.heal,
+        card: _findBestHealingCard(cards),
+        priority: 1,
+      );
+    }
+    
+    // Use special abilities when available
+    final specialCard = _findSpecialCard(cards);
+    if (specialCard != null && _random.nextDouble() < 0.6) {
+      return EnemyDecision(
+        type: EnemyActionType.special,
+        card: specialCard,
+        priority: 2,
+      );
+    }
+    
+    // Powerful attacks
+    return EnemyDecision(
+      type: EnemyActionType.attack,
+      card: _findHighestDamageCard(cards),
+      priority: 3,
+    );
+  }
+  
+  EnemyDecision _wizardAI(List<GameCard> cards, double threatLevel, double healthPercentage) {
+    // Wizards are tactical and use magic
+    if (healthPercentage < 0.4 && _hasHealingCard(cards)) {
+      return EnemyDecision(
+        type: EnemyActionType.heal,
+        card: _findBestHealingCard(cards),
+        priority: 1,
+      );
+    }
+    
+    // Use elemental magic strategically
+    final elementalCard = _findElementalCard(cards);
+    if (elementalCard != null && _random.nextDouble() < 0.8) {
+      return EnemyDecision(
+        type: EnemyActionType.special,
+        card: elementalCard,
+        priority: 2,
+      );
+    }
+    
+    // Balanced approach
+    if (_random.nextDouble() < 0.5) {
+      return EnemyDecision(
+        type: EnemyActionType.attack,
+        card: _findHighestDamageCard(cards),
+        priority: 3,
+      );
+    } else {
+      return EnemyDecision(
+        type: EnemyActionType.defend,
+        card: _findDefenseCard(cards),
+        priority: 4,
+      );
+    }
+  }
+  
+  EnemyDecision _genericAI(List<GameCard> cards, double threatLevel, double healthPercentage) {
+    // Generic balanced AI
+    if (healthPercentage < 0.3 && _hasHealingCard(cards)) {
+      return EnemyDecision(
+        type: EnemyActionType.heal,
+        card: _findBestHealingCard(cards),
+        priority: 1,
+      );
+    }
+    
+    if (threatLevel > 0.4) {
+      return EnemyDecision(
+        type: EnemyActionType.attack,
+        card: _findHighestDamageCard(cards),
+        priority: 2,
+      );
+    }
+    
+    return EnemyDecision(
+      type: EnemyActionType.attack,
+      card: _findRandomAttackCard(cards),
+      priority: 3,
+    );
+  }
+  
+  void _executeEnemyAttack(GameCard card) {
+    _enemyHand.remove(card);
+    _addToLog('Enemy attacks with: ${card.name}');
+    _playCard(card, isEnemy: true);
+  }
+  
+  void _executeEnemyDefense(GameCard card) {
+    _enemyHand.remove(card);
+    _addToLog('Enemy defends with: ${card.name}');
+    _enemyEffects['defense'] = 1;
+  }
+  
+  void _executeEnemyHeal(GameCard card) {
+    _enemyHand.remove(card);
+    _addToLog('Enemy heals with: ${card.name}');
+    _playCard(card, isEnemy: true);
+  }
+  
+  void _executeEnemySpecial(GameCard card) {
+    _enemyHand.remove(card);
+    _addToLog('Enemy uses special ability: ${card.name}');
+    _playCard(card, isEnemy: true);
+  }
+  
+  // Helper methods for AI decision making
+  bool _hasHealingCard(List<GameCard> cards) {
+    return cards.any((card) => (card.stats?['healing'] as int? ?? 0) > 0);
+  }
+  
+  GameCard? _findBestHealingCard(List<GameCard> cards) {
+    final healingCards = cards.where((card) => (card.stats?['healing'] as int? ?? 0) > 0).toList();
+    if (healingCards.isEmpty) return null;
+    
+    healingCards.sort((a, b) => (card.stats?['healing'] as int? ?? 0).compareTo(b.stats?['healing'] as int? ?? 0));
+    return healingCards.first;
+  }
+  
+  GameCard? _findHighestDamageCard(List<GameCard> cards) {
+    final attackCards = cards.where((card) => (card.stats?['damage'] as int? ?? 0) > 0).toList();
+    if (attackCards.isEmpty) return null;
+    
+    attackCards.sort((a, b) => (b.stats?['damage'] as int? ?? 0).compareTo(a.stats?['damage'] as int? ?? 0));
+    return attackCards.first;
+  }
+  
+  GameCard? _findRandomAttackCard(List<GameCard> cards) {
+    final attackCards = cards.where((card) => (card.stats?['damage'] as int? ?? 0) > 0).toList();
+    if (attackCards.isEmpty) return null;
+    
+    return attackCards[_random.nextInt(attackCards.length)];
+  }
+  
+  GameCard? _findDefenseCard(List<GameCard> cards) {
+    final defenseCards = cards.where((card) => card.stats?['effect'] == 'defense').toList();
+    if (defenseCards.isEmpty) return null;
+    
+    return defenseCards[_random.nextInt(defenseCards.length)];
+  }
+  
+  GameCard? _findSpecialCard(List<GameCard> cards) {
+    final specialCards = cards.where((card) => 
+      card.stats?['effect'] != null && 
+      card.stats?['effect'] != 'defense' &&
+      card.stats?['effect'] != 'heal'
+    ).toList();
+    
+    if (specialCards.isEmpty) return null;
+    return specialCards[_random.nextInt(specialCards.length)];
+  }
+  
+  GameCard? _findElementalCard(List<GameCard> cards) {
+    final elementalCards = cards.where((card) => card.element != CardElement.none).toList();
+    if (elementalCards.isEmpty) return null;
+    
+    return elementalCards[_random.nextInt(elementalCards.length)];
+  }
 
   void _playCard(GameCard card, {bool isEnemy = false}) {
     _addToLog('${isEnemy ? 'Enemy' : 'You'} played: ${card.name}');
+
+    // Record battle action
+    _recordBattleAction(
+      turnNumber: _turnNumber,
+      isPlayerAction: !isEnemy,
+      actionType: 'play_card',
+      description: '${isEnemy ? 'Enemy' : 'Player'} played ${card.name}',
+      data: {
+        'card_id': card.id,
+        'card_name': card.name,
+        'mana_cost': card.manaCost,
+        'damage': card.stats?['damage'] ?? 0,
+        'healing': card.stats?['healing'] ?? 0,
+      },
+    );
 
     // Apply card effects
     _applyCardEffect(card, isEnemy: isEnemy);
 
     // Check for battle end
     _checkBattleEnd();
+  }
+  
+  void _recordBattleAction({
+    required int turnNumber,
+    required bool isPlayerAction,
+    required String actionType,
+    required String description,
+    required Map<String, dynamic> data,
+  }) {
+    _battleActions.add(BattleAction(
+      turnNumber: turnNumber,
+      isPlayerAction: isPlayerAction,
+      actionType: actionType,
+      description: description,
+      data: data,
+      timestamp: DateTime.now(),
+    ));
+  }
+  
+  void _showBattleReplay() {
+    if (_battleActions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No battle actions to replay')),
+      );
+      return;
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Battle Replay'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _battleActions.length,
+                  itemBuilder: (context, index) {
+                    final action = _battleActions[index];
+                    return ListTile(
+                      leading: Icon(
+                        action.isPlayerAction ? Icons.person : Icons.computer,
+                        color: action.isPlayerAction ? Colors.blue : Colors.red,
+                      ),
+                      title: Text('Turn ${action.turnNumber}'),
+                      subtitle: Text(action.description),
+                      trailing: Text(
+                        '${action.timestamp.hour}:${action.timestamp.minute}:${action.timestamp.second}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton(
+                    onPressed: _startReplay,
+                    child: const Text('Start Replay'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _exportBattleData,
+                    child: const Text('Export Data'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _startReplay() {
+    if (_battleActions.isEmpty) return;
+    
+    setState(() {
+      _isReplayMode = true;
+      _replayIndex = 0;
+    });
+    
+    Navigator.of(context).pop(); // Close dialog
+    
+    _replayTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (_replayIndex >= _battleActions.length) {
+        timer.cancel();
+        setState(() {
+          _isReplayMode = false;
+        });
+        _addToLog('Replay completed!');
+        return;
+      }
+      
+      final action = _battleActions[_replayIndex];
+      _addToLog('[REPLAY] ${action.description}');
+      _replayIndex++;
+    });
+  }
+  
+  void _exportBattleData() {
+    final battleData = {
+      'enemy': {
+        'id': widget.enemyId,
+        'name': widget.enemyName,
+        'level': widget.enemyLevel,
+        'hp': widget.enemyHp,
+        'atk': widget.enemyAtk,
+        'def': widget.enemyDef,
+      },
+      'battle_stats': {
+        'turns_played': _battleStats.turnsPlayed,
+        'cards_played': _battleStats.cardsPlayed,
+        'damage_dealt': _battleStats.damageDealt,
+        'damage_taken': _battleStats.damageTaken,
+        'healing_done': _battleStats.healingDone,
+        'mana_spent': _battleStats.manaSpent,
+        'efficiency': _battleStats.efficiency,
+        'duration': _battleStats.battleDuration.inSeconds,
+      },
+      'actions': _battleActions.map((action) => {
+        'turn': action.turnNumber,
+        'player_action': action.isPlayerAction,
+        'type': action.actionType,
+        'description': action.description,
+        'data': action.data,
+        'timestamp': action.timestamp.toIso8601String(),
+      }).toList(),
+    };
+    
+    // TODO: Implement actual export functionality
+    _addToLog('Battle data exported (${battleData.toString().length} characters)');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Battle data exported successfully')),
+    );
   }
 
   void _applyCardEffect(GameCard card, {bool isEnemy = false}) {
@@ -330,41 +1038,117 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
     final damage = card.stats?['damage'] as int? ?? 0;
     final healing = card.stats?['healing'] as int? ?? 0;
     final manaCost = card.manaCost;
+    final element = card.element;
 
-    // Apply damage
-    if (damage > 0) {
+    // Apply elemental bonuses
+    final elementalBonus = _calculateElementalBonus(element, isEnemy);
+    final finalDamage = (damage * elementalBonus).round();
+    final finalHealing = (healing * elementalBonus).round();
+
+    // Apply damage with animations and track statistics
+    if (finalDamage > 0) {
       if (isEnemy) {
-        _playerHp = max(0, _playerHp - damage);
-        _addToLog('You took $damage damage!');
+        _playerHp = max(0, _playerHp - finalDamage);
+        _addToLog('You took $finalDamage damage!');
+        _showDamageAnimation(finalDamage, isPlayer: true, isDamage: true);
+        _updateBattleStats(damageTaken: finalDamage);
       } else {
-        _enemyHp = max(0, _enemyHp - damage);
-        _addToLog('Enemy took $damage damage!');
+        _enemyHp = max(0, _enemyHp - finalDamage);
+        _addToLog('Enemy took $finalDamage damage!');
+        _showDamageAnimation(finalDamage, isPlayer: false, isDamage: true);
+        _updateBattleStats(damageDealt: finalDamage);
       }
     }
 
-    // Apply healing
-    if (healing > 0) {
+    // Apply healing with animations and track statistics
+    if (finalHealing > 0) {
       if (isEnemy) {
-        _enemyHp = min(widget.enemyHp, _enemyHp + healing);
-        _addToLog('Enemy healed $healing HP!');
+        _enemyHp = min(widget.enemyHp, _enemyHp + finalHealing);
+        _addToLog('Enemy healed $finalHealing HP!');
+        _showDamageAnimation(finalHealing, isPlayer: false, isDamage: false);
       } else {
-        _playerHp = min(100, _playerHp + healing);
-        _addToLog('You healed $healing HP!');
+        _playerHp = min(100, _playerHp + finalHealing);
+        _addToLog('You healed $finalHealing HP!');
+        _showDamageAnimation(finalHealing, isPlayer: true, isDamage: false);
+        _updateBattleStats(healingDone: finalHealing);
       }
     }
 
-    // Apply special effects
+    // Apply advanced special effects
+    _applyAdvancedEffects(card, isEnemy);
+
+    // Consume mana and track statistics
+    if (!isEnemy && manaCost > 0) {
+      _playerMana = max(0, _playerMana - manaCost);
+      _updateBattleStats(manaSpent: manaCost);
+    }
+    
+    // Track card played
+    _updateBattleStats(cardsPlayed: 1);
+  }
+  
+  void _updateBattleStats({
+    int? damageDealt,
+    int? damageTaken,
+    int? healingDone,
+    int? manaSpent,
+    int? cardsPlayed,
+    int? turnsPlayed,
+    String? specialEffect,
+  }) {
+    setState(() {
+      _battleStats = _battleStats.copyWith(
+        damageDealt: _battleStats.damageDealt + (damageDealt ?? 0),
+        damageTaken: _battleStats.damageTaken + (damageTaken ?? 0),
+        healingDone: _battleStats.healingDone + (healingDone ?? 0),
+        manaSpent: _battleStats.manaSpent + (manaSpent ?? 0),
+        cardsPlayed: _battleStats.cardsPlayed + (cardsPlayed ?? 0),
+        turnsPlayed: _battleStats.turnsPlayed + (turnsPlayed ?? 0),
+        specialEffectsUsed: specialEffect != null 
+            ? [..._battleStats.specialEffectsUsed, specialEffect]
+            : _battleStats.specialEffectsUsed,
+      );
+    });
+  }
+  
+  double _calculateElementalBonus(CardElement element, bool isEnemy) {
+    // Get enemy element from quest tags or default
+    final enemyElement = CardElement.none; // TODO: Extract from enemy data
+    
+    // Elemental effectiveness chart
+    final effectiveness = {
+      CardElement.fire: {CardElement.ice: 1.5, CardElement.nature: 0.7},
+      CardElement.ice: {CardElement.nature: 1.5, CardElement.fire: 0.7},
+      CardElement.nature: {CardElement.fire: 1.5, CardElement.ice: 0.7},
+      CardElement.light: {CardElement.dark: 1.5, CardElement.light: 0.5},
+      CardElement.dark: {CardElement.light: 1.5, CardElement.dark: 0.5},
+    };
+    
+    if (effectiveness.containsKey(element) && 
+        effectiveness[element]!.containsKey(enemyElement)) {
+      return effectiveness[element]![enemyElement]!;
+    }
+    
+    return 1.0;
+  }
+  
+  void _applyAdvancedEffects(GameCard card, bool isEnemy) {
+    final effect = card.stats?['effect'] as String?;
+    
     switch (effect) {
       case 'double_attack':
         if (!isEnemy) {
           _playerEffects['double_attack'] = 1;
           _addToLog('Double attack active for 1 turn!');
+          _showEffectAnimation('Double Attack!', Colors.orange);
         }
         break;
       case 'mana_boost':
         if (!isEnemy) {
-          _playerMana = min(_playerMaxMana, _playerMana + 5);
-          _addToLog('Gained 5 mana!');
+          final boost = card.stats?['amount'] as int? ?? 5;
+          _playerMana = min(_playerMaxMana, _playerMana + boost);
+          _addToLog('Gained $boost mana!');
+          _showEffectAnimation('+$boost Mana', Colors.blue);
         }
         break;
       case 'swap_cards':
@@ -373,25 +1157,77 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
           _playerHand = List<GameCard>.from(_enemyHand);
           _enemyHand = tempHand;
           _addToLog('Cards swapped!');
+          _showEffectAnimation('Cards Swapped!', Colors.purple);
         }
         break;
       case 'miss_turn':
         if (!isEnemy) {
           _addToLog('Enemy will miss their next turn!');
           _enemyEffects['miss_turn'] = 1;
+          _showEffectAnimation('Enemy Stunned!', Colors.red);
         }
         break;
       case 'stop_action':
         if (!isEnemy) {
           _addToLog('Enemy action cancelled!');
+          _showEffectAnimation('Action Blocked!', Colors.grey);
+        }
+        break;
+      case 'chain_lightning':
+        if (!isEnemy) {
+          final chainDamage = card.stats?['chain_damage'] as int? ?? 10;
+          _enemyHp = max(0, _enemyHp - chainDamage);
+          _addToLog('Chain lightning deals $chainDamage damage!');
+          _showEffectAnimation('Chain Lightning!', Colors.yellow);
+        }
+        break;
+      case 'heal_over_time':
+        if (!isEnemy) {
+          final healAmount = card.stats?['heal_amount'] as int? ?? 5;
+          final duration = card.stats?['duration'] as int? ?? 3;
+          _playerEffects['heal_over_time'] = duration;
+          _addToLog('Healing over time for $duration turns!');
+          _showEffectAnimation('Healing Over Time', Colors.green);
         }
         break;
     }
-
-    // Consume mana
-    if (!isEnemy && manaCost > 0) {
-      _playerMana = max(0, _playerMana - manaCost);
-    }
+  }
+  
+  void _showDamageAnimation(int amount, {required bool isPlayer, required bool isDamage}) {
+    if (!_showDamageNumbers) return;
+    
+    final color = isDamage ? Colors.red : Colors.green;
+    final prefix = isDamage ? '-' : '+';
+    
+    _activeAnimations.add(
+      AnimationEffect(
+        type: AnimationType.damageNumber,
+        data: {
+          'amount': amount,
+          'color': color,
+          'prefix': prefix,
+          'isPlayer': isPlayer,
+        },
+      ),
+    );
+    
+    setState(() {});
+  }
+  
+  void _showEffectAnimation(String text, Color color) {
+    if (!_showParticleEffects) return;
+    
+    _activeAnimations.add(
+      AnimationEffect(
+        type: AnimationType.effectText,
+        data: {
+          'text': text,
+          'color': color,
+        },
+      ),
+    );
+    
+    setState(() {});
   }
 
   void _checkBattleEnd() {
@@ -409,55 +1245,170 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
   }
 
   void _showBattleResult() {
+    final isVictory = _winner == 'player';
+    final rewards = _calculateBattleRewards();
+    
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text(_winner == 'player' ? 'Victory!' : 'Defeat'),
+        title: Text(isVictory ? 'Victory!' : 'Defeat'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_winner == 'player' ? 'You won the battle!' : 'You were defeated!'),
+            Text(isVictory ? 'You have defeated ${widget.enemyName}!' : 'You have been defeated by ${widget.enemyName}'),
             const SizedBox(height: 16),
-            if (_winner == 'player') ...[
-              Text('XP Gained: ${widget.enemyLevel * 10}'),
-              Text('Gold Gained: ${widget.enemyLevel * 5}'),
-              const SizedBox(height: 8),
-              const Text('Rewards:'),
-              ..._generateBattleRewards().map((reward) => Text('• $reward')),
+            if (isVictory) ...[
+              _buildRewardRow('Experience', '${rewards.experience} XP', Icons.star),
+              _buildRewardRow('Gold', '${rewards.gold} Gold', Icons.monetization_on),
+              if (rewards.cards.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text('Cards Earned:', style: TextStyle(fontWeight: FontWeight.bold)),
+                ...rewards.cards.map((card) => _buildRewardRow(card.name, card.rarity.name, Icons.style)),
+              ],
             ],
+            const SizedBox(height: 16),
+            _buildBattleStatsSummary(),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Return to previous screen
+              Navigator.of(context).pop();
+              Navigator.of(context).pop();
             },
             child: const Text('Continue'),
           ),
         ],
       ),
     );
+    
+    // Apply rewards if victory
+    if (isVictory) {
+      _applyBattleRewards(rewards);
+    }
   }
-
-  List<String> _generateBattleRewards() {
-    final rewards = <String>[];
+  
+  BattleRewards _calculateBattleRewards() {
+    final baseExperience = widget.enemyLevel * 10;
+    final baseGold = widget.enemyLevel * 5;
     
-    // Always give XP and gold
-    rewards.add('${widget.enemyLevel * 10} XP');
-    rewards.add('${widget.enemyLevel * 5} Gold');
+    // Bonus based on battle performance
+    final efficiencyBonus = _battleStats.efficiency / 10;
+    final healthBonus = _playerHp / 100.0;
+    final turnBonus = max(0, 10 - _battleStats.turnsPlayed) * 2;
     
-    // Random chance for items
-    if (_random.nextDouble() < 0.3) {
-      rewards.add('Random Card');
+    final totalExperience = (baseExperience * (1 + efficiencyBonus + healthBonus + turnBonus)).round();
+    final totalGold = (baseGold * (1 + efficiencyBonus + healthBonus)).round();
+    
+    // Random card rewards
+    final earnedCards = <GameCard>[];
+    if (_random.nextDouble() < 0.3) { // 30% chance for card
+      earnedCards.add(_generateRandomRewardCard());
     }
     
-    if (_random.nextDouble() < 0.1) {
-      rewards.add('Rare Item');
+    return BattleRewards(
+      experience: totalExperience,
+      gold: totalGold,
+      cards: earnedCards,
+    );
+  }
+  
+  GameCard _generateRandomRewardCard() {
+    final cardTemplates = [
+      GameCard(
+        id: 'reward_fireball',
+        name: 'Fireball',
+        description: 'A powerful fire spell',
+        type: CardType.spell,
+        rarity: CardRarity.rare,
+        element: CardElement.fire,
+        manaCost: 3,
+        stats: {'damage': 20},
+      ),
+      GameCard(
+        id: 'reward_heal',
+        name: 'Greater Heal',
+        description: 'Restore significant health',
+        type: CardType.spell,
+        rarity: CardRarity.uncommon,
+        element: CardElement.light,
+        manaCost: 2,
+        stats: {'healing': 15},
+      ),
+      GameCard(
+        id: 'reward_lightning',
+        name: 'Chain Lightning',
+        description: 'Lightning that chains to multiple targets',
+        type: CardType.spell,
+        rarity: CardRarity.rare,
+        element: CardElement.light,
+        manaCost: 4,
+        stats: {'damage': 15, 'effect': 'chain_lightning', 'chain_damage': 8},
+      ),
+    ];
+    
+    return cardTemplates[_random.nextInt(cardTemplates.length)];
+  }
+  
+  void _applyBattleRewards(BattleRewards rewards) {
+    // Apply experience to character
+    final character = ref.read(characterWithEquipmentProvider).value;
+    if (character != null) {
+      // TODO: Update character experience
+      _addToLog('Gained ${rewards.experience} experience!');
     }
     
-    return rewards;
+    // Apply gold to inventory
+    final inventory = ref.read(inventoryStreamProvider).value;
+    if (inventory != null) {
+      // TODO: Update inventory gold
+      _addToLog('Gained ${rewards.gold} gold!');
+    }
+    
+    // Add cards to inventory
+    for (final card in rewards.cards) {
+      // TODO: Add card to inventory
+      _addToLog('Earned card: ${card.name}');
+    }
+  }
+  
+  Widget _buildRewardRow(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16),
+          const SizedBox(width: 8),
+          Text('$label: $value'),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildBattleStatsSummary() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Battle Statistics:', style: TextStyle(fontWeight: FontWeight.bold)),
+          Text('Duration: ${_battleStats.battleDuration.inSeconds}s'),
+          Text('Turns: ${_battleStats.turnsPlayed}'),
+          Text('Cards Played: ${_battleStats.cardsPlayed}'),
+          Text('Damage Dealt: ${_battleStats.damageDealt}'),
+          Text('Damage Taken: ${_battleStats.damageTaken}'),
+          Text('Healing Done: ${_battleStats.healingDone}'),
+          Text('Mana Spent: ${_battleStats.manaSpent}'),
+          Text('Efficiency: ${_battleStats.efficiency.toStringAsFixed(1)}'),
+        ],
+      ),
+    );
   }
 
   void _useActionCard(GameCard card, bool isActionCard) {
@@ -1216,6 +2167,239 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
             ),
           ),
         ),
+      ],
+    );
+  }
+  
+  void _showBattleSettings() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Battle Settings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SwitchListTile(
+              title: const Text('Auto Play'),
+              subtitle: const Text('Automatically play cards'),
+              value: _autoPlayEnabled,
+              onChanged: (value) {
+                setState(() {
+                  _autoPlayEnabled = value;
+                });
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Fast Mode'),
+              subtitle: const Text('Skip animations'),
+              value: _fastModeEnabled,
+              onChanged: (value) {
+                setState(() {
+                  _fastModeEnabled = value;
+                });
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Show Damage Numbers'),
+              subtitle: const Text('Display damage/healing numbers'),
+              value: _showDamageNumbers,
+              onChanged: (value) {
+                setState(() {
+                  _showDamageNumbers = value;
+                });
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Show Particle Effects'),
+              subtitle: const Text('Display visual effects'),
+              value: _showParticleEffects,
+              onChanged: (value) {
+                setState(() {
+                  _showParticleEffects = value;
+                });
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Show Battle Tips'),
+              subtitle: const Text('Display helpful tips'),
+              value: _showBattleTips,
+              onChanged: (value) {
+                setState(() {
+                  _showBattleTips = value;
+                });
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Allow Undo'),
+              subtitle: const Text('Allow undoing actions'),
+              value: _allowUndo,
+              onChanged: (value) {
+                setState(() {
+                  _allowUndo = value;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Text('Turn Time Limit: '),
+                Expanded(
+                  child: Slider(
+                    value: _turnTimeLimit.toDouble(),
+                    min: 30,
+                    max: 120,
+                    divisions: 9,
+                    label: '${_turnTimeLimit}s',
+                    onChanged: (value) {
+                      setState(() {
+                        _turnTimeLimit = value.round();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _undoLastAction() {
+    // TODO: Implement undo functionality
+    _addToLog('Undo not implemented yet');
+  }
+  
+  void _showBattleTip() {
+    if (!_showBattleTips) return;
+    
+    final tips = [
+      'Use elemental cards for bonus damage!',
+      'Save mana for powerful spells',
+      'Heal when your health is low',
+      'Chain effects for maximum impact',
+      'Watch the enemy\'s mana and cards',
+    ];
+    
+    final randomTip = tips[_random.nextInt(tips.length)];
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('💡 Tip: $randomTip'),
+        duration: const Duration(seconds: 3),
+        backgroundColor: Colors.blue,
+      ),
+    );
+  }
+  
+  void _showTutorial() {
+    if (!_showTutorial || _tutorialStep >= _tutorialSteps.length) {
+      _showTutorial = false;
+      return;
+    }
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('Tutorial Step ${_tutorialStep + 1}'),
+        content: Text(_tutorialSteps[_tutorialStep]),
+        actions: [
+          if (_tutorialStep > 0)
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _tutorialStep--;
+                });
+                Navigator.of(context).pop();
+                _showTutorial();
+              },
+              child: const Text('Previous'),
+            ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _tutorialStep++;
+              });
+              Navigator.of(context).pop();
+              if (_tutorialStep < _tutorialSteps.length) {
+                _showTutorial();
+              } else {
+                _showTutorial = false;
+                _addToLog('Tutorial completed!');
+              }
+            },
+            child: Text(_tutorialStep < _tutorialSteps.length - 1 ? 'Next' : 'Finish'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _showHelp() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Battle Help'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildHelpSection('Card Types', [
+                'Action Cards: Free to play, basic attacks',
+                'Skill Cards: Cost mana, powerful effects',
+                'Elemental Cards: Bonus damage vs weak elements',
+              ]),
+              _buildHelpSection('Battle Phases', [
+                'Draw Phase: Draw cards from your deck',
+                'Action Phase: Play cards and attack',
+                'End Phase: Apply effects and end turn',
+              ]),
+              _buildHelpSection('Elements', [
+                'Fire > Ice > Nature > Fire',
+                'Light > Dark > Light',
+                'Use elemental advantage for bonus damage!',
+              ]),
+              _buildHelpSection('Tips', [
+                'Save mana for powerful spells',
+                'Heal when health is low',
+                'Watch enemy mana and cards',
+                'Chain effects for maximum impact',
+              ]),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildHelpSection(String title, List<String> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 8),
+        ...items.map((item) => Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 4),
+          child: Text('• $item'),
+        )),
+        const SizedBox(height: 16),
       ],
     );
   }

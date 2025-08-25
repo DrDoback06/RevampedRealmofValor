@@ -1,3 +1,4 @@
+import 'package:equatable/equatable.dart';
 import 'package:json_annotation/json_annotation.dart';
 
 part 'weather_model.g.dart';
@@ -22,91 +23,44 @@ enum WeatherSeverity {
 }
 
 @JsonSerializable()
-class WeatherData {
+class WeatherData extends Equatable {
+  final String condition;
   final double temperature;
   final double humidity;
   final double windSpeed;
-  final WeatherCondition condition;
-  final WeatherSeverity severity;
-  final String location;
+  final String windDirection;
+  final double pressure;
+  final double visibility;
   final DateTime timestamp;
-  final Map<String, dynamic>? additionalData;
+  final String icon;
 
-  WeatherData({
+  const WeatherData({
+    required this.condition,
     required this.temperature,
     required this.humidity,
     required this.windSpeed,
-    required this.condition,
-    required this.severity,
-    required this.location,
+    required this.windDirection,
+    required this.pressure,
+    required this.visibility,
     required this.timestamp,
-    this.additionalData,
+    required this.icon,
   });
 
   factory WeatherData.fromJson(Map<String, dynamic> json) => _$WeatherDataFromJson(json);
   Map<String, dynamic> toJson() => _$WeatherDataToJson(this);
 
-  WeatherData copyWith({
-    double? temperature,
-    double? humidity,
-    double? windSpeed,
-    WeatherCondition? condition,
-    WeatherSeverity? severity,
-    String? location,
-    DateTime? timestamp,
-    Map<String, dynamic>? additionalData,
-  }) {
-    return WeatherData(
-      temperature: temperature ?? this.temperature,
-      humidity: humidity ?? this.humidity,
-      windSpeed: windSpeed ?? this.windSpeed,
-      condition: condition ?? this.condition,
-      severity: severity ?? this.severity,
-      location: location ?? this.location,
-      timestamp: timestamp ?? this.timestamp,
-      additionalData: additionalData ?? this.additionalData,
-    );
-  }
-
-  String get conditionIcon {
-    switch (condition) {
-      case WeatherCondition.clear:
-        return '☀️';
-      case WeatherCondition.cloudy:
-        return '☁️';
-      case WeatherCondition.rain:
-        return '🌧️';
-      case WeatherCondition.snow:
-        return '❄️';
-      case WeatherCondition.storm:
-        return '⛈️';
-      case WeatherCondition.fog:
-        return '🌫️';
-      case WeatherCondition.wind:
-        return '💨';
-      case WeatherCondition.heat:
-        return '🔥';
-      case WeatherCondition.cold:
-        return '🥶';
-    }
-  }
-
-  String get severityColor {
-    switch (severity) {
-      case WeatherSeverity.mild:
-        return '#4CAF50';
-      case WeatherSeverity.moderate:
-        return '#FF9800';
-      case WeatherSeverity.severe:
-        return '#F44336';
-      case WeatherSeverity.extreme:
-        return '#9C27B0';
-    }
-  }
-
-  bool get affectsGameplay {
-    return severity == WeatherSeverity.severe || severity == WeatherSeverity.extreme;
-  }
+  @override
+  List<Object?> get props => [
+    condition,
+    temperature,
+    humidity,
+    windSpeed,
+    windDirection,
+    pressure,
+    visibility,
+    timestamp,
+    icon,
+  ];
 }
 
 @JsonSerializable()
