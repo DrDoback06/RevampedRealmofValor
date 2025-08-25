@@ -299,6 +299,224 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
 
     _addToLog('Enemy is thinking...');
 
+    // Simple AI: prioritize attacks when low on HP, use buffs early
+    final enemyCard = _enemyHand.isNotEmpty ? _enemyHand.first : null;
+    if (enemyCard != null) {
+      _enemyHand.removeAt(0);
+      _playCard(enemyCard, isEnemy: true);
+    }
+
+    // End enemy turn after a delay
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!_battleEnded) {
+        _endTurn();
+      }
+    });
+  }
+
+  void _playCard(GameCard card, {bool isEnemy = false}) {
+    _addToLog('${isEnemy ? 'Enemy' : 'You'} played: ${card.name}');
+
+    // Apply card effects
+    _applyCardEffect(card, isEnemy: isEnemy);
+
+    // Check for battle end
+    _checkBattleEnd();
+  }
+
+  void _applyCardEffect(GameCard card, {bool isEnemy = false}) {
+    final target = isEnemy ? 'enemy' : 'player';
+    final effect = card.stats?['effect'] as String?;
+    final damage = card.stats?['damage'] as int? ?? 0;
+    final healing = card.stats?['healing'] as int? ?? 0;
+    final manaCost = card.manaCost;
+
+    // Apply damage
+    if (damage > 0) {
+      if (isEnemy) {
+        _playerHp = max(0, _playerHp - damage);
+        _addToLog('You took $damage damage!');
+      } else {
+        _enemyHp = max(0, _enemyHp - damage);
+        _addToLog('Enemy took $damage damage!');
+      }
+    }
+
+    // Apply healing
+    if (healing > 0) {
+      if (isEnemy) {
+        _enemyHp = min(widget.enemyHp, _enemyHp + healing);
+        _addToLog('Enemy healed $healing HP!');
+      } else {
+        _playerHp = min(100, _playerHp + healing);
+        _addToLog('You healed $healing HP!');
+      }
+    }
+
+    // Apply special effects
+    switch (effect) {
+      case 'double_attack':
+        if (!isEnemy) {
+          _playerEffects['double_attack'] = 1;
+          _addToLog('Double attack active for 1 turn!');
+        }
+        break;
+      case 'mana_boost':
+        if (!isEnemy) {
+          _playerMana = min(_playerMaxMana, _playerMana + 5);
+          _addToLog('Gained 5 mana!');
+        }
+        break;
+      case 'swap_cards':
+        if (!isEnemy) {
+          final tempHand = List<GameCard>.from(_playerHand);
+          _playerHand = List<GameCard>.from(_enemyHand);
+          _enemyHand = tempHand;
+          _addToLog('Cards swapped!');
+        }
+        break;
+      case 'miss_turn':
+        if (!isEnemy) {
+          _addToLog('Enemy will miss their next turn!');
+          _enemyEffects['miss_turn'] = 1;
+        }
+        break;
+      case 'stop_action':
+        if (!isEnemy) {
+          _addToLog('Enemy action cancelled!');
+        }
+        break;
+    }
+
+    // Consume mana
+    if (!isEnemy && manaCost > 0) {
+      _playerMana = max(0, _playerMana - manaCost);
+    }
+  }
+
+  void _checkBattleEnd() {
+    if (_playerHp <= 0) {
+      _battleEnded = true;
+      _winner = 'enemy';
+      _addToLog('You were defeated!');
+      _showBattleResult();
+    } else if (_enemyHp <= 0) {
+      _battleEnded = true;
+      _winner = 'player';
+      _addToLog('Victory! You defeated ${widget.enemyName}!');
+      _showBattleResult();
+    }
+  }
+
+  void _showBattleResult() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(_winner == 'player' ? 'Victory!' : 'Defeat'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_winner == 'player' ? 'You won the battle!' : 'You were defeated!'),
+            const SizedBox(height: 16),
+            if (_winner == 'player') ...[
+              Text('XP Gained: ${widget.enemyLevel * 10}'),
+              Text('Gold Gained: ${widget.enemyLevel * 5}'),
+              const SizedBox(height: 8),
+              const Text('Rewards:'),
+              ..._generateBattleRewards().map((reward) => Text('• $reward')),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pop(); // Return to previous screen
+            },
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _generateBattleRewards() {
+    final rewards = <String>[];
+    
+    // Always give XP and gold
+    rewards.add('${widget.enemyLevel * 10} XP');
+    rewards.add('${widget.enemyLevel * 5} Gold');
+    
+    // Random chance for items
+    if (_random.nextDouble() < 0.3) {
+      rewards.add('Random Card');
+    }
+    
+    if (_random.nextDouble() < 0.1) {
+      rewards.add('Rare Item');
+    }
+    
+    return rewards;
+  }
+
+  void _useActionCard(GameCard card, bool isActionCard) {
+    if (!_isPlayerTurn || _battleEnded) return;
+
+    setState(() {
+      if (isActionCard) {
+        _actionCards.remove(card);
+      }
+    });
+
+    _playCard(card);
+    _endTurn();
+  }
+
+  void _loadCard(GameCard card) {
+    if (!_isPlayerTurn || _battleEnded) return;
+
+    // Check if player has enough mana
+    if (_playerMana < card.manaCost) {
+      _addToLog('Not enough mana! Need ${card.manaCost}, have $_playerMana');
+      return;
+    }
+
+    setState(() {
+      _playerHand.remove(card);
+      _loadedCards.add(card);
+      _playerMana -= card.manaCost;
+    });
+
+    _addToLog('Loaded ${card.name} (${card.manaCost} mana)');
+  }
+
+  void _executeAttack() {
+    if (!_isPlayerTurn || _battleEnded || _loadedCards.isEmpty) return;
+
+    final card = _loadedCards.first;
+    _loadedCards.removeAt(0);
+
+    _playCard(card);
+    _endTurn();
+  }
+
+  void _showInventory() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Inventory'),
+        content: const Text('Inventory feature coming soon!'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
     // Simple AI: use a random action card if possible
     if (_enemyHand.isNotEmpty) {
       final actionCard = _enemyHand[_random.nextInt(_enemyHand.length)];
@@ -733,10 +951,82 @@ class _EnhancedBattleScreenState extends ConsumerState<EnhancedBattleScreen> {
                               child: Container(
                                 width: 100,
                                 padding: const EdgeInsets.all(8),
-                                child: Text(
-                                  card.name,
-                                  style: const TextStyle(fontSize: 12),
-                                  textAlign: TextAlign.center,
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      card.name,
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    Text(
+                                      'Mana: ${card.manaCost}',
+                                      style: const TextStyle(fontSize: 10),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Active Effects
+                    if (_playerEffects.isNotEmpty || _enemyEffects.isNotEmpty) ...[
+                      const Text('Active Effects', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (_playerEffects.isNotEmpty) ...[
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.green),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Your Effects:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    ..._playerEffects.entries.map((entry) => Text(
+                                      '• ${entry.key} (${entry.value} turns)',
+                                      style: const TextStyle(fontSize: 10),
+                                    )),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          if (_enemyEffects.isNotEmpty) ...[
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.red),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Enemy Effects:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    ..._enemyEffects.entries.map((entry) => Text(
+                                      '• ${entry.key} (${entry.value} turns)',
+                                      style: const TextStyle(fontSize: 10),
+                                    )),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                                 ),
                               ),
                             );

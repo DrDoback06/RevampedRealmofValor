@@ -17,6 +17,7 @@ import '../../../data/models/quest_model.dart';
 import '../../../core/di.dart';
 import '../quests/providers.dart';
 import '../quests/quest_list_screen.dart';
+import '../quests/quest_detail_screen.dart';
 import 'fantasy_map_style.dart';
 import 'package:realm_of_valor/features/battle/enhanced_battle_screen.dart';
 
@@ -250,16 +251,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
     );
     
-    // Add enemy markers
+    // Add enemy markers with custom icons
     for (final quest in _randomQuests.where((q) => q.type == QuestType.battle)) {
-      final enemyType = quest.tags.firstWhere((tag) => tag.startsWith('enemy_type:')).split(':')[1];
+      final enemyType = quest.tags.firstWhere((tag) => tag.startsWith('enemy_type:'), orElse: () => 'enemy_type:goblin').split(':')[1];
       final isPatrolling = quest.tags.any((tag) => tag == 'is_patrolling:true');
       
       _enemyMarkers.add(
         Marker(
           markerId: MarkerId(quest.id),
           position: LatLng(quest.location!.latitude, quest.location!.longitude),
-          icon: FantasyMapStyle.getEnemyMarkerIcon(enemyType),
+          icon: _getCustomQuestIcon('enemy'),
           infoWindow: InfoWindow(
             title: quest.title,
             snippet: isPatrolling ? 'Patrolling $enemyType' : 'Stationary $enemyType',
@@ -270,15 +271,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
     }
     
-    // Add item markers
+    // Add item markers with custom icons
     for (final quest in _randomQuests.where((q) => q.type == QuestType.treasure)) {
-      final itemType = quest.tags.firstWhere((tag) => tag.startsWith('item_type:')).split(':')[1];
+      final itemType = quest.tags.firstWhere((tag) => tag.startsWith('item_type:'), orElse: () => 'item_type:treasure').split(':')[1];
       
       _itemMarkers.add(
         Marker(
           markerId: MarkerId(quest.id),
           position: LatLng(quest.location!.latitude, quest.location!.longitude),
-          icon: FantasyMapStyle.getQuestMarkerIcon('item'),
+          icon: _getCustomQuestIcon('item'),
           infoWindow: InfoWindow(
             title: quest.title,
             snippet: 'Find the $itemType',
@@ -289,16 +290,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
     }
     
-    // Add POI markers
+    // Add POI markers with custom icons
     for (final quest in _poiQuests) {
-      final poiName = quest.tags.firstWhere((tag) => tag.startsWith('poi_name:')).split(':')[1];
-      final poiCategory = quest.tags.firstWhere((tag) => tag.startsWith('poi_category:')).split(':')[1];
+      final poiName = quest.tags.firstWhere((tag) => tag.startsWith('poi_name:'), orElse: () => 'poi_name:Unknown').split(':')[1];
+      final poiCategory = quest.tags.firstWhere((tag) => tag.startsWith('poi_category:'), orElse: () => 'poi_category:exploration').split(':')[1];
       
       _poiMarkers.add(
         Marker(
           markerId: MarkerId(quest.id),
           position: LatLng(quest.location!.latitude, quest.location!.longitude),
-          icon: FantasyMapStyle.getQuestMarkerIcon(_getQuestTypeFromCategory(poiCategory)),
+          icon: _getCustomQuestIcon(_getQuestTypeFromCategory(poiCategory)),
           infoWindow: InfoWindow(
             title: quest.title,
             snippet: '$poiName - ${_getQuestTypeFromCategory(poiCategory)} quest',
@@ -309,13 +310,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
     }
     
-    // Add trail quest markers
+    // Add trail quest markers with custom icons
     for (final quest in _trailQuests) {
       _trailMarkers.add(
         Marker(
           markerId: MarkerId(quest.id),
           position: LatLng(quest.location!.latitude, quest.location!.longitude),
-          icon: FantasyMapStyle.getQuestMarkerIcon('trail'),
+          icon: _getCustomQuestIcon('trail'),
           infoWindow: InfoWindow(
             title: quest.title,
             snippet: 'Trail quest',
@@ -326,13 +327,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
     }
     
-    // Add storyline markers
+    // Add storyline markers with custom icons
     for (final quest in _storylineQuests) {
       _storylineMarkers.add(
         Marker(
           markerId: MarkerId(quest.id),
           position: LatLng(quest.location!.latitude, quest.location!.longitude),
-          icon: FantasyMapStyle.getQuestMarkerIcon('storyline'),
+          icon: _getCustomQuestIcon('story'),
           infoWindow: InfoWindow(
             title: quest.title,
             snippet: 'Main storyline quest',
@@ -341,6 +342,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           onTap: () => _startQuest(quest),
         ),
       );
+    }
+  }
+
+  BitmapDescriptor _getCustomQuestIcon(String questType) {
+    switch (questType) {
+      case 'enemy':
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+      case 'item':
+      case 'treasure':
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+      case 'exploration':
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+      case 'trail':
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      case 'story':
+      case 'storyline':
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.huePurple);
+      case 'fitness':
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow);
+      case 'social':
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan);
+      default:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
     }
   }
 
@@ -368,8 +392,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _startQuest(Quest quest) {
     _logDebug('Starting quest: ${quest.title}');
     
-    // Show quest details dialog instead of auto-adding
-    _showQuestDetailsDialog(quest);
+    // Navigate to quest detail screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => QuestDetailScreen(quest: quest),
+      ),
+    );
   }
 
   void _showQuestDetailsDialog(Quest quest) {
@@ -514,6 +542,380 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       MaterialPageRoute(
         builder: (context) => const QuestListScreen(),
       ),
+    );
+  }
+
+  void _showQuestPanel() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _buildQuestPanel(),
+    );
+  }
+
+  Widget _buildQuestPanel() {
+    final allQuests = [
+      ..._randomQuests,
+      ..._poiQuests,
+      ..._trailQuests,
+      ..._storylineQuests,
+    ];
+
+    // Sort quests by distance
+    allQuests.sort((a, b) {
+      if (a.location == null) return 1;
+      if (b.location == null) return -1;
+      
+      final distanceA = _calculateDistanceToQuest(a);
+      final distanceB = _calculateDistanceToQuest(b);
+      return distanceA.compareTo(distanceB);
+    });
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.quest, color: Colors.orange),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Nearby Quests (${allQuests.length})',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // Quest filters
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildFilterChip('All', null),
+                      _buildFilterChip('Enemy', QuestType.battle),
+                      _buildFilterChip('Treasure', QuestType.treasure),
+                      _buildFilterChip('Exploration', QuestType.location),
+                      _buildFilterChip('Trail', null, isTrail: true),
+                      _buildFilterChip('Story', QuestType.story),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Quest list
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: allQuests.length,
+                  itemBuilder: (context, index) {
+                    final quest = allQuests[index];
+                    return _buildQuestCard(quest);
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip(String label, QuestType? type, {bool isTrail = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: false,
+        onSelected: (selected) {
+          // TODO: Implement filtering
+        },
+        backgroundColor: Colors.grey[200],
+        selectedColor: Colors.orange[200],
+      ),
+    );
+  }
+
+  Widget _buildQuestCard(Quest quest) {
+    final distance = _calculateDistanceToQuest(quest);
+    final questType = _getQuestTypeString(quest.type);
+    final questColor = _getQuestTypeColor(quest.type);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: questColor,
+          child: Icon(
+            _getQuestTypeIcon(quest.type),
+            color: Colors.white,
+          ),
+        ),
+        title: Text(
+          quest.title,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(quest.description),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text('${distance.toStringAsFixed(0)}m'),
+                const SizedBox(width: 16),
+                Icon(Icons.star, size: 16, color: Colors.orange),
+                const SizedBox(width: 4),
+                Text('${quest.rewards.xp} XP'),
+              ],
+            ),
+          ],
+        ),
+        trailing: ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            setState(() {
+              _selectedQuestId = quest.id;
+            });
+            _startQuest(quest);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: questColor,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Start'),
+        ),
+        onTap: () {
+          Navigator.of(context).pop();
+          setState(() {
+            _selectedQuestId = quest.id;
+          });
+          _startQuest(quest);
+        },
+      ),
+    );
+  }
+
+  String _getQuestTypeString(QuestType type) {
+    switch (type) {
+      case QuestType.battle:
+        return 'Enemy';
+      case QuestType.treasure:
+        return 'Treasure';
+      case QuestType.location:
+        return 'Exploration';
+      case QuestType.story:
+        return 'Story';
+      case QuestType.fitness:
+        return 'Fitness';
+      case QuestType.social:
+        return 'Social';
+      case QuestType.daily:
+        return 'Daily';
+      case QuestType.weekly:
+        return 'Weekly';
+    }
+  }
+
+  Color _getQuestTypeColor(QuestType type) {
+    switch (type) {
+      case QuestType.battle:
+        return Colors.red;
+      case QuestType.treasure:
+        return Colors.blue;
+      case QuestType.location:
+        return Colors.green;
+      case QuestType.story:
+        return Colors.purple;
+      case QuestType.fitness:
+        return Colors.orange;
+      case QuestType.social:
+        return Colors.cyan;
+      case QuestType.daily:
+        return Colors.yellow;
+      case QuestType.weekly:
+        return Colors.indigo;
+    }
+  }
+
+  IconData _getQuestTypeIcon(QuestType type) {
+    switch (type) {
+      case QuestType.battle:
+        return Icons.sword;
+      case QuestType.treasure:
+        return Icons.chest;
+      case QuestType.location:
+        return Icons.explore;
+      case QuestType.story:
+        return Icons.book;
+      case QuestType.fitness:
+        return Icons.fitness_center;
+      case QuestType.social:
+        return Icons.people;
+      case QuestType.daily:
+        return Icons.today;
+      case QuestType.weekly:
+        return Icons.calendar_view_week;
+    }
+  }
+
+  void _toggleLocationTracking() {
+    setState(() {
+      _isTracking = !_isTracking;
+    });
+
+    if (_isTracking) {
+      _startLocationTracking();
+    } else {
+      _stopLocationTracking();
+    }
+  }
+
+  void _startLocationTracking() {
+    _logDebug('Starting location tracking');
+    _locationSubscription?.cancel();
+    
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // Update every 10 meters
+      ),
+    ).listen(
+      (Position position) {
+        if (!_disposed) {
+          setState(() {
+            _currentPosition = LatLng(position.latitude, position.longitude);
+          });
+          _onLocationChanged();
+        }
+      },
+      onError: (error) {
+        _logDebug('Location tracking error: $error');
+      },
+    );
+  }
+
+  void _stopLocationTracking() {
+    _logDebug('Stopping location tracking');
+    _locationSubscription?.cancel();
+  }
+
+  void _navigateToSelectedQuest() {
+    if (_selectedQuestId == null) return;
+
+    final allQuests = [
+      ..._randomQuests,
+      ..._poiQuests,
+      ..._trailQuests,
+      ..._storylineQuests,
+    ];
+
+    final selectedQuest = allQuests.firstWhere(
+      (quest) => quest.id == _selectedQuestId,
+      orElse: () => throw Exception('Selected quest not found'),
+    );
+
+    if (selectedQuest.location == null) {
+      _logDebug('Selected quest has no location');
+      return;
+    }
+
+    _logDebug('Navigating to quest: ${selectedQuest.title}');
+    _getRouteToQuest(selectedQuest);
+  }
+
+  Future<void> _getRouteToQuest(Quest quest) async {
+    try {
+      final route = await NavigationService.getRoute(
+        origin: _currentPosition,
+        destination: LatLng(quest.location!.latitude, quest.location!.longitude),
+      );
+
+      if (route != null) {
+        setState(() {
+          _currentRoute = route;
+          _navigationRoutes.clear();
+          _navigationRoutes.add(
+            Polyline(
+              polylineId: const PolylineId('quest_route'),
+              points: route.points,
+              color: Colors.purple,
+              width: 4,
+            ),
+          );
+        });
+
+        // Animate camera to show the route
+        _mapController?.animateCamera(
+          CameraUpdate.newLatLngBounds(
+            _getBoundsForRoute(route.points),
+            50.0,
+          ),
+        );
+
+        _logDebug('Route drawn to quest');
+      } else {
+        _logDebug('Failed to get route to quest');
+      }
+    } catch (e) {
+      _logDebug('Error getting route: $e');
+    }
+  }
+
+  LatLngBounds _getBoundsForRoute(List<LatLng> points) {
+    if (points.isEmpty) {
+      return LatLngBounds(
+        southwest: _currentPosition,
+        northeast: _currentPosition,
+      );
+    }
+
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+
+    for (final point in points) {
+      minLat = min(minLat, point.latitude);
+      maxLat = max(maxLat, point.latitude);
+      minLng = min(minLng, point.longitude);
+      maxLng = max(maxLng, point.longitude);
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
     );
   }
 
@@ -846,8 +1248,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.list),
-            onPressed: _navigateToQuestList,
-            tooltip: 'View quests',
+            onPressed: _showQuestPanel,
+            tooltip: 'View nearby quests',
           ),
         ],
       ),
@@ -938,11 +1340,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
           const SizedBox(height: 8),
           FloatingActionButton(
+            heroTag: 'tracking',
+            onPressed: _toggleLocationTracking,
+            backgroundColor: _isTracking ? Colors.red : Colors.green,
+            child: Icon(
+              _isTracking ? Icons.stop : Icons.play_arrow,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
             heroTag: 'quests',
-            onPressed: _navigateToQuestList,
-            backgroundColor: Colors.green,
+            onPressed: _showQuestPanel,
+            backgroundColor: Colors.orange,
             child: const Icon(Icons.list, color: Colors.white),
           ),
+          if (_selectedQuestId != null) ...[
+            const SizedBox(height: 8),
+            FloatingActionButton(
+              heroTag: 'navigate',
+              onPressed: _navigateToSelectedQuest,
+              backgroundColor: Colors.purple,
+              child: const Icon(Icons.navigation, color: Colors.white),
+            ),
+          ],
         ],
       ),
     );
