@@ -1,0 +1,283 @@
+{
+  "version": "1.0.0",
+  "title": "Realm of Valor — Epic Fantasy Map",
+  "mapOptions": {
+    "center": { "lat": 52.232192, "lng": -0.8912896 },
+    "zoom": 12,
+    "tilt": 0,
+    "mapId": "epic_fantasy_dark",
+    "mapTypeControl": false,
+    "streetViewControl": false,
+    "fullscreenControl": true
+  },
+
+  "mapStyle": [
+    { "elementType": "geometry", "stylers": [{ "color": "#0f1016" }] },
+    { "elementType": "labels.text.fill", "stylers": [{ "color": "#c9d1d9" }] },
+    { "elementType": "labels.text.stroke", "stylers": [{ "color": "#0b0c12" }, { "weight": 3 }] },
+    { "featureType": "administrative", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "poi", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "road", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "transit", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#0a1b2e" }] },
+    { "featureType": "water", "elementType": "labels", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "landscape.natural", "elementType": "geometry", "stylers": [{ "color": "#151a22" }] }
+  ],
+
+  "ui": {
+    "defaultMarkerIcon": "assets/icons/pin-default.png",
+    "categoryIcons": {
+      "sanctum": "assets/icons/pin-sanctum.png",
+      "city": "assets/icons/pin-city.png",
+      "harbor": "assets/icons/pin-harbor.png",
+      "dungeon": "assets/icons/pin-dungeon.png",
+      "artifact": "assets/icons/pin-artifact.png",
+      "waypoint": "assets/icons/pin-waypoint.png",
+      "trail": "assets/icons/pin-trail.png",
+      "enemy": "assets/icons/pin-enemy.png",
+      "quest": "assets/icons/pin-quest.png"
+    },
+    "categoryColors": {
+      "routePrimary": "#ff77e9",
+      "routeSecondary": "#ffb703",
+      "forest": "#1b5e20",
+      "mountains": "#5d4037",
+      "highlands": "#7e6a57",
+      "lowlands": "#2a3b2a",
+      "sea": "#0a1b2e",
+      "glow": "#ff77e9"
+    },
+    "labelStyle": {
+      "font": "Trajan Pro, Cinzel, serif",
+      "weight": "600",
+      "letterSpacing": 0.5
+    }
+  },
+
+  "data": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Northampton Forest",
+          "category": "region-forest",
+          "style": {
+            "strokeColor": "#0b2d1c",
+            "strokeWeight": 1,
+            "fillColor": "#133a24",
+            "fillOpacity": 0.65,
+            "zIndex": 2
+          },
+          "label": "Northampton Forest"
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-0.92, 52.25], [-0.85, 52.28], [-0.78, 52.26],
+            [-0.80, 52.22], [-0.88, 52.20], [-0.92, 52.23],
+            [-0.92, 52.25]
+          ]]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Valor Peaks",
+          "category": "region-mountains",
+          "style": {
+            "strokeColor": "#3e2723",
+            "strokeWeight": 2,
+            "fillColor": "#5d4037",
+            "fillOpacity": 0.7,
+            "zIndex": 3
+          },
+          "label": "Valor Peaks"
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-0.88, 52.24], [-0.82, 52.26], [-0.76, 52.24],
+            [-0.78, 52.20], [-0.84, 52.18], [-0.88, 52.20],
+            [-0.88, 52.24]
+          ]]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Riverside Meadows",
+          "category": "region-lowlands",
+          "style": {
+            "strokeColor": "#1b3d1b",
+            "strokeWeight": 1,
+            "fillColor": "#2a3b2a",
+            "fillOpacity": 0.5,
+            "zIndex": 1
+          },
+          "label": "Riverside Meadows"
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-0.90, 52.23], [-0.85, 52.25], [-0.80, 52.23],
+            [-0.82, 52.20], [-0.87, 52.18], [-0.90, 52.20],
+            [-0.90, 52.23]
+          ]]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Northampton Sanctum",
+          "category": "sanctum",
+          "icon": "sanctum",
+          "label": "Northampton Sanctum",
+          "description": "The grand capital of the Realm of Valor. Ancient spires pierce the sky.",
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.8912896, 52.232192] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Dragon's Den Harbor",
+          "category": "harbor",
+          "icon": "harbor",
+          "label": "Dragon's Den Harbor",
+          "description": "Mysterious docks where black-sailed traders bring exotic goods.",
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.88, 52.23] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Valor Fitness Citadel",
+          "category": "city",
+          "icon": "city",
+          "label": "Valor Fitness Citadel",
+          "description": "A fortress of strength where warriors train and quests begin.",
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.89, 52.23] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Ancient Ruins",
+          "category": "dungeon",
+          "icon": "dungeon",
+          "label": "Ancient Ruins",
+          "description": "Crumbling stones hide forgotten treasures and dangerous creatures.",
+          "dangerLevel": 5,
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.87, 52.22] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Mystic Grove",
+          "category": "artifact",
+          "icon": "artifact",
+          "label": "Mystic Grove",
+          "description": "A sacred grove where ancient magic still lingers in the air.",
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.86, 52.24] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Riverside Trail",
+          "category": "route-primary",
+          "style": {
+            "strokeColor": "#ff77e9",
+            "strokeWeight": 4,
+            "strokeOpacity": 0.9,
+            "lineDash": [12, 10],
+            "zIndex": 6
+          },
+          "waypoints": [
+            "Northampton Sanctum",
+            "Dragon's Den Harbor",
+            "Valor Fitness Citadel",
+            "Ancient Ruins"
+          ],
+          "narrative": "The ancient path of heroes—follow the pink glow to adventure."
+        },
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-0.8912896, 52.232192],
+            [-0.88, 52.23],
+            [-0.89, 52.23],
+            [-0.87, 52.22]
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Mountain Pass",
+          "category": "route-secondary",
+          "style": {
+            "strokeColor": "#ffb703",
+            "strokeWeight": 3,
+            "strokeOpacity": 0.8,
+            "lineDash": [6, 6],
+            "zIndex": 6
+          },
+          "narrative": "A treacherous path through the Valor Peaks."
+        },
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-0.88, 52.24],
+            [-0.86, 52.24],
+            [-0.84, 52.22],
+            [-0.82, 52.20]
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "The Halo Field",
+          "category": "aura",
+          "effect": "glow",
+          "style": {
+            "strokeColor": "#ff77e9",
+            "strokeWeight": 1,
+            "strokeOpacity": 0.5,
+            "fillColor": "#ff77e9",
+            "fillOpacity": 0.12,
+            "zIndex": 3
+          },
+          "label": "Halo Field"
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-0.895, 52.235], [-0.885, 52.235], [-0.880, 52.230],
+            [-0.885, 52.225], [-0.895, 52.228], [-0.900, 52.232],
+            [-0.895, 52.235]
+          ]]
+        }
+      }
+    ]
+  },
+
+  "behaviors": {
+    "hoverPopups": true,
+    "clickPopups": true,
+    "panToOnSelect": true,
+    "animateRoutes": true,
+    "routeAnimationMs": 2200,
+    "pulseSanctum": true
+  },
+
+  "attribution": "© Realm of Valor — Epic Fantasy Map Layer",
+  "notes": "Coordinates are based on real Northampton area for geolocation accuracy."
+}
