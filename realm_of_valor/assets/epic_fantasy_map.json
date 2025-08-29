@@ -265,6 +265,184 @@
             [-0.895, 52.235]
           ]]
         }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Shadowmoor Swamp",
+          "category": "region-swamp",
+          "style": {
+            "strokeColor": "#1a1a1a",
+            "strokeWeight": 2,
+            "fillColor": "#2d2d2d",
+            "fillOpacity": 0.6,
+            "zIndex": 2
+          },
+          "label": "Shadowmoor Swamp",
+          "questZone": true,
+          "questTypes": ["enemy", "exploration", "treasure"]
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-0.92, 52.18], [-0.88, 52.20], [-0.85, 52.18],
+            [-0.87, 52.15], [-0.90, 52.14], [-0.92, 52.16],
+            [-0.92, 52.18]
+          ]]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Crystal Caverns",
+          "category": "dungeon",
+          "icon": "dungeon",
+          "label": "Crystal Caverns",
+          "description": "Deep underground caves filled with glowing crystals and ancient magic.",
+          "dangerLevel": 8,
+          "questTypes": ["enemy", "treasure", "story"],
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.84, 52.19] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Fitness Arena",
+          "category": "city",
+          "icon": "city",
+          "label": "Fitness Arena",
+          "description": "A grand coliseum where warriors test their physical prowess.",
+          "questTypes": ["fitness", "battle", "social"],
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.90, 52.21] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Enchanted Library",
+          "category": "artifact",
+          "icon": "artifact",
+          "label": "Enchanted Library",
+          "description": "A mystical library containing ancient knowledge and powerful spells.",
+          "questTypes": ["story", "exploration", "treasure"],
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.93, 52.23] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Goblin Market",
+          "category": "city",
+          "icon": "city",
+          "label": "Goblin Market",
+          "description": "A bustling marketplace where exotic goods and rare items are traded.",
+          "questTypes": ["social", "treasure", "item"],
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.86, 52.25] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Dragon's Peak",
+          "category": "dungeon",
+          "icon": "dungeon",
+          "label": "Dragon's Peak",
+          "description": "The highest peak where ancient dragons are said to dwell.",
+          "dangerLevel": 10,
+          "questTypes": ["enemy", "story", "treasure"],
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.82, 52.26] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Healing Springs",
+          "category": "artifact",
+          "icon": "artifact",
+          "label": "Healing Springs",
+          "description": "Magical springs with restorative properties for weary travelers.",
+          "questTypes": ["exploration", "item", "story"],
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.89, 52.26] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Rogue's Guild",
+          "category": "city",
+          "icon": "city",
+          "label": "Rogue's Guild",
+          "description": "A secretive guild where stealth and cunning are valued above all.",
+          "questTypes": ["social", "exploration", "enemy"],
+          "zIndex": 10
+        },
+        "geometry": { "type": "Point", "coordinates": [-0.94, 52.20] }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Mystic Trail",
+          "category": "route-primary",
+          "style": {
+            "strokeColor": "#9c27b0",
+            "strokeWeight": 3,
+            "strokeOpacity": 0.8,
+            "lineDash": [8, 8],
+            "zIndex": 6
+          },
+          "waypoints": [
+            "Enchanted Library",
+            "Healing Springs",
+            "Mystic Grove",
+            "Crystal Caverns"
+          ],
+          "narrative": "The path of the mystics—follow the purple glow to arcane knowledge."
+        },
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-0.93, 52.23],
+            [-0.89, 52.26],
+            [-0.86, 52.24],
+            [-0.84, 52.19]
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Adventure Trail",
+          "category": "route-secondary",
+          "style": {
+            "strokeColor": "#4caf50",
+            "strokeWeight": 3,
+            "strokeOpacity": 0.8,
+            "lineDash": [6, 6],
+            "zIndex": 6
+          },
+          "waypoints": [
+            "Fitness Arena",
+            "Goblin Market",
+            "Rogue's Guild",
+            "Dragon's Peak"
+          ],
+          "narrative": "The path of adventure—follow the green glow to glory."
+        },
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-0.90, 52.21],
+            [-0.86, 52.25],
+            [-0.94, 52.20],
+            [-0.82, 52.26]
+          ]
+        }
       }
     ]
   },

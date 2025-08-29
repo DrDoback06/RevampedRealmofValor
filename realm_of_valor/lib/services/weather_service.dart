@@ -129,19 +129,19 @@ class OpenWeatherMapService implements WeatherService {
     final main = data['main'];
     final weather = data['weather'][0];
     final wind = data['wind'];
-    final location = data['name'];
 
     final condition = _mapWeatherCondition(weather['main']);
-    final severity = _calculateSeverity(main['temp'], wind['speed']);
 
     return WeatherData(
       temperature: main['temp'].toDouble(),
       humidity: main['humidity'].toDouble(),
       windSpeed: wind['speed'].toDouble(),
-      condition: condition,
-      severity: severity,
-      location: location,
+      windDirection: wind['deg']?.toString() ?? 'N',
+      pressure: main['pressure']?.toDouble() ?? 1013.25,
+      visibility: data['visibility']?.toDouble() ?? 10000.0,
+      condition: condition.name,
       timestamp: DateTime.now(),
+      icon: weather['icon'] ?? '01d',
     );
   }
 
@@ -155,16 +155,17 @@ class OpenWeatherMapService implements WeatherService {
       final wind = item['wind'];
 
       final condition = _mapWeatherCondition(weather['main']);
-      final severity = _calculateSeverity(main['temp'], wind['speed']);
 
       return WeatherData(
         temperature: main['temp'].toDouble(),
         humidity: main['humidity'].toDouble(),
         windSpeed: wind['speed'].toDouble(),
-        condition: condition,
-        severity: severity,
-        location: location,
+        windDirection: wind['deg']?.toString() ?? 'N',
+        pressure: main['pressure']?.toDouble() ?? 1013.25,
+        visibility: item['visibility']?.toDouble() ?? 10000.0,
+        condition: condition.name,
         timestamp: DateTime.parse(item['dt_txt']),
+        icon: weather['icon'] ?? '01d',
       );
     }).toList();
 
@@ -197,27 +198,17 @@ class OpenWeatherMapService implements WeatherService {
     }
   }
 
-  WeatherSeverity _calculateSeverity(double temperature, double windSpeed) {
-    if (temperature > 35 || temperature < -10 || windSpeed > 20) {
-      return WeatherSeverity.extreme;
-    } else if (temperature > 30 || temperature < -5 || windSpeed > 15) {
-      return WeatherSeverity.severe;
-    } else if (temperature > 25 || temperature < 0 || windSpeed > 10) {
-      return WeatherSeverity.moderate;
-    } else {
-      return WeatherSeverity.mild;
-    }
-  }
-
   WeatherData _getMockWeatherData() {
     return WeatherData(
       temperature: 18.5,
       humidity: 65.0,
       windSpeed: 8.2,
-      condition: WeatherCondition.cloudy,
-      severity: WeatherSeverity.mild,
-      location: 'Wootton, Northampton',
+      windDirection: 'N',
+      pressure: 1013.25,
+      visibility: 10000.0,
+      condition: WeatherCondition.cloudy.name,
       timestamp: DateTime.now(),
+      icon: '02d',
     );
   }
 
@@ -227,10 +218,12 @@ class OpenWeatherMapService implements WeatherService {
         temperature: 15 + (index % 10),
         humidity: 60 + (index % 20),
         windSpeed: 5 + (index % 8),
-        condition: WeatherCondition.values[index % WeatherCondition.values.length],
-        severity: WeatherSeverity.values[index % WeatherSeverity.values.length],
-        location: 'Wootton, Northampton',
+        windDirection: 'N',
+        pressure: 1013.25,
+        visibility: 10000.0,
+        condition: WeatherCondition.values[index % WeatherCondition.values.length].name,
         timestamp: DateTime.now().add(Duration(hours: index)),
+        icon: '01d',
       );
     });
 
@@ -252,10 +245,12 @@ class MockWeatherService implements WeatherService {
       temperature: 18.5,
       humidity: 65.0,
       windSpeed: 8.2,
-      condition: WeatherCondition.cloudy,
-      severity: WeatherSeverity.mild,
-      location: 'Wootton, Northampton',
+      windDirection: 'N',
+      pressure: 1013.25,
+      visibility: 10000.0,
+      condition: WeatherCondition.cloudy.name,
       timestamp: DateTime.now(),
+      icon: '02d',
     );
   }
 
@@ -268,10 +263,12 @@ class MockWeatherService implements WeatherService {
         temperature: 15 + (index % 10),
         humidity: 60 + (index % 20),
         windSpeed: 5 + (index % 8),
-        condition: WeatherCondition.values[index % WeatherCondition.values.length],
-        severity: WeatherSeverity.values[index % WeatherSeverity.values.length],
-        location: 'Wootton, Northampton',
+        windDirection: 'N',
+        pressure: 1013.25,
+        visibility: 10000.0,
+        condition: WeatherCondition.values[index % WeatherCondition.values.length].name,
         timestamp: DateTime.now().add(Duration(hours: index)),
+        icon: '01d',
       );
     });
 

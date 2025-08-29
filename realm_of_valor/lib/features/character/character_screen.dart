@@ -5,6 +5,7 @@ import '../inventory/providers.dart';
 import '../../../data/models/character_model.dart';
 import '../../../data/models/inventory_model.dart';
 import '../../../data/models/card_model.dart';
+import 'skill_tree_widget.dart';
 
 class CharacterScreen extends ConsumerWidget {
   const CharacterScreen({super.key});
@@ -936,33 +937,21 @@ class CharacterScreen extends ConsumerWidget {
   }
 
   void _showSkillTree(BuildContext context) {
-    debugPrint('CharacterScreen: Showing skill tree dialog');
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Skill Tree'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Skill tree system coming soon!'),
-            SizedBox(height: 16),
-            Text('You\'ll be able to:'),
-            Text('• Unlock new abilities'),
-            Text('• Choose skill paths'),
-            Text('• Specialize in different areas'),
-            Text('• Create unique builds'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              debugPrint('CharacterScreen: User closed skill tree dialog');
-              Navigator.of(context).pop();
-            },
-            child: const Text('Close'),
-          ),
-        ],
-      ),
+    debugPrint('CharacterScreen: Showing skill tree');
+    final characterAsync = ref.read(characterStreamProvider);
+    
+    characterAsync.when(
+      data: (character) {
+        if (character != null) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => SkillTreeWidget(character: character),
+            ),
+          );
+        }
+      },
+      loading: () => const CircularProgressIndicator(),
+      error: (error, stack) => Text('Error: $error'),
     );
   }
 }

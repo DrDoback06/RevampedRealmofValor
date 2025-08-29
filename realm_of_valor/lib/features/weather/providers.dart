@@ -79,7 +79,7 @@ final weatherStatusProvider = Provider<WeatherStatus>((ref) {
         activeEffects: activeEffects,
         positiveEffects: positiveEffects,
         negativeEffects: negativeEffects,
-        affectsGameplay: weather.affectsGameplay,
+        affectsGameplay: true, // Weather always affects gameplay in this app
       );
     },
     loading: () => WeatherStatus.loading(),
