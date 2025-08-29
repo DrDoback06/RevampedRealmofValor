@@ -40,8 +40,8 @@ class AnimationEffect {
   const AnimationEffect({
     required this.type,
     required this.data,
-    DateTime? timestamp,
-  }) : timestamp = timestamp ?? DateTime.now();
+    required this.timestamp,
+  });
 }
 
 class BattleRewards {

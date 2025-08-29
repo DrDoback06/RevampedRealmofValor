@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/foundation.dart';
+import 'package:go_router/go_router.dart';
 import 'dart:math';
 import 'dart:async';
 import '../../../services/poi_service.dart';
-import '../../../services/event_bus.dart';
 import '../../../services/navigation_service.dart';
 import '../../../services/trail_service.dart';
 import '../../../services/adventure_api_service.dart';
@@ -16,12 +16,13 @@ import '../../../services/epic_map_loader.dart';
 import '../../../services/weather_service.dart';
 import '../../../data/models/quest_model.dart';
 import '../../../data/models/weather_model.dart';
+import '../../../integration/fitness_service.dart';
+import '../../../services/event_bus.dart';
 import '../../../core/di.dart';
+import '../character/providers.dart';
 import '../quests/providers.dart';
-import '../quests/quest_list_screen.dart';
 import '../quests/quest_detail_screen.dart';
-import 'fantasy_map_style.dart';
-import 'package:realm_of_valor/features/battle/enhanced_battle_screen.dart';
+import '../battle/battle_screen.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -30,37 +31,24 @@ class MapScreen extends ConsumerStatefulWidget {
   ConsumerState<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends ConsumerState<MapScreen> {
+class _MapScreenState extends ConsumerState<MapScreen> 
+    with TickerProviderStateMixin {
   GoogleMapController? _mapController;
   StreamSubscription<Position>? _locationSubscription;
   LatLng _currentPosition = const LatLng(51.5074, -0.1278); // London default
   bool _locationPermissionGranted = false;
   bool _isTracking = false;
-  final List<String> _debugLog = [];
   
-  // Quest markers by type
-  final Set<Marker> _enemyMarkers = {};
-  final Set<Marker> _itemMarkers = {};
-  final Set<Marker> _poiMarkers = {};
-  final Set<Marker> _trailMarkers = {};
-  final Set<Marker> _storylineMarkers = {};
+  // Quest markers
+  final Set<Marker> _questMarkers = {};
   final Set<Marker> _playerMarkers = {};
-  
-  // Quest clustering
-  final Map<String, List<Quest>> _questClusters = {};
-  final Set<Marker> _clusterMarkers = {};
-  double _clusterRadius = 100.0; // meters
   
   // Map elements
   final Set<Circle> _geofences = {};
   final Set<Polyline> _navigationRoutes = {};
-  final Set<Polyline> _trailRoutes = {};
   
   // Quest data
-  final List<Quest> _randomQuests = [];
-  final List<Quest> _poiQuests = [];
-  final List<Quest> _trailQuests = [];
-  final List<Quest> _storylineQuests = [];
+  final List<Quest> _availableQuests = [];
   final List<POI> _realPOIs = [];
   
   // Epic fantasy map data
@@ -69,1179 +57,201 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   
   // State
   bool _isLoadingPOIs = false;
-  bool _isLoadingTrails = false;
   bool _disposed = false;
   RouteInfo? _currentRoute;
-  String? _selectedQuestId;
   
   // Mini-map and compass
   bool _showMiniMap = true;
   bool _showCompass = true;
   double _compassRotation = 0.0;
-  LatLngBounds? _miniMapBounds;
-  
-  // Moving enemies
-  final Map<String, LatLng> _movingEnemies = {};
-  Timer? _enemyMovementTimer;
   
   // Weather integration
   WeatherData? _currentWeather;
   Timer? _weatherUpdateTimer;
   bool _isWeatherEnabled = true;
 
+  // UI State
+  Quest? _hoveredQuest;
+  Quest? _selectedQuest;
+  bool _showQuestDetails = false;
+  
+  // Active Quest Tracking
+  final List<Quest> _activeQuests = [];
+  Timer? _questProgressTimer;
+  final FitnessService _fitnessService = StubFitnessService();
+  
+  // GPS Spoofer for testing
+  bool _showGpsSpoofer = false;
+  double _spoofLatitude = 52.199424;
+  double _spoofLongitude = -0.884736;
+  double _spoofSpeed = 0.001; // Degrees per step
+  
+  // Animations
+  late AnimationController _overlayAnimationController;
+  late AnimationController _questHoverController;
+  late Animation<double> _overlaySlideAnimation;
+  late Animation<double> _questHoverAnimation;
+
   void _logDebug(String message) {
     final timestamp = DateTime.now().toString().split('.')[0];
     final logMessage = '[$timestamp] MapScreen: $message';
     debugPrint(logMessage);
-    if (mounted && !_disposed) {
-      setState(() {
-        _debugLog.add(logMessage);
-        if (_debugLog.length > 50) {
-          _debugLog.removeAt(0);
-        }
-      });
-    }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _logDebug('initState called');
-    _initializeMap();
-    _requestLocationPermission();
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    _logDebug('dispose called');
-    _locationSubscription?.cancel();
-    _enemyMovementTimer?.cancel();
-    _mapController?.dispose();
-    super.dispose();
-  }
-
-  void _initializeMap() {
-    _logDebug('_initializeMap called');
-    _loadEpicFantasyMap();
-    _generateRandomQuests();
-    _generateTrailQuests();
-    _loadAdventureQuests();
-    _startEnemyMovement();
-    _initializeWeather();
-  }
-  
-  void _initializeWeather() {
-    _logDebug('Initializing weather system');
-    _updateWeather();
-    
-    // Update weather every 30 minutes
-    _weatherUpdateTimer = Timer.periodic(const Duration(minutes: 30), (timer) {
-      if (!_disposed) {
-        _updateWeather();
-      }
+  void _initializeActiveQuestTracking() {
+    _questProgressTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _updateActiveQuestProgress();
     });
   }
-  
-  Future<void> _updateWeather() async {
-    try {
-      final weatherService = WeatherService();
-      final weather = await weatherService.getCurrentWeather(
-        latitude: _currentPosition.latitude,
-        longitude: _currentPosition.longitude,
-      );
+
+  void _updateActiveQuestProgress() async {
+    if (_activeQuests.isEmpty) return;
+
+    for (int i = 0; i < _activeQuests.length; i++) {
+      final quest = _activeQuests[i];
+      final updatedQuest = await _checkQuestProgress(quest);
       
-      setState(() {
-        _currentWeather = weather;
-      });
-      
-      // Generate weather-based quests
-      _generateWeatherQuests(weather);
-      
-      _logDebug('Weather updated: ${weather.condition}');
-    } catch (e) {
-      _logDebug('Error updating weather: $e');
-    }
-  }
-  
-  void _generateWeatherQuests(WeatherData weather) {
-    final weatherQuests = <Quest>[];
-    
-    switch (weather.condition.toLowerCase()) {
-      case 'rain':
-        weatherQuests.addAll([
-          Quest(
-            id: 'weather_rain_${DateTime.now().millisecondsSinceEpoch}',
-            title: 'Rainy Day Adventure',
-            type: QuestType.location,
-            category: QuestCategory.adventure,
-            status: QuestStatus.notStarted,
-            description: 'Explore the world in the rain. Find shelter and discover hidden treasures.',
-            objectives: [
-              QuestObjective(
-                id: 'find_shelter',
-                description: 'Find 3 sheltered locations',
-                target: 3,
-                type: 'location',
-              ),
-            ],
-            rewards: QuestRewards(xp: 50, gold: 25),
-            location: QuestLocation(
-              latitude: _currentPosition.latitude + (Random().nextDouble() - 0.5) * 0.01,
-              longitude: _currentPosition.longitude + (Random().nextDouble() - 0.5) * 0.01,
-            ),
-            tags: ['weather:rain', 'difficulty:2', 'seasonal:true'],
-          ),
-        ]);
-        break;
-        
-      case 'snow':
-        weatherQuests.addAll([
-          Quest(
-            id: 'weather_snow_${DateTime.now().millisecondsSinceEpoch}',
-            title: 'Winter Wonderland',
-            type: QuestType.location,
-            category: QuestCategory.adventure,
-            status: QuestStatus.notStarted,
-            description: 'Embrace the winter magic. Build snow structures and find frozen treasures.',
-            objectives: [
-              QuestObjective(
-                id: 'snow_activities',
-                description: 'Complete 2 snow-related activities',
-                target: 2,
-                type: 'activity',
-              ),
-            ],
-            rewards: QuestRewards(xp: 75, gold: 40),
-            location: QuestLocation(
-              latitude: _currentPosition.latitude + (Random().nextDouble() - 0.5) * 0.01,
-              longitude: _currentPosition.longitude + (Random().nextDouble() - 0.5) * 0.01,
-            ),
-            tags: ['weather:snow', 'difficulty:3', 'seasonal:true'],
-          ),
-        ]);
-        break;
-        
-      case 'sunny':
-        weatherQuests.addAll([
-          Quest(
-            id: 'weather_sunny_${DateTime.now().millisecondsSinceEpoch}',
-            title: 'Sunny Day Quest',
-            type: QuestType.fitness,
-            category: QuestCategory.adventure,
-            status: QuestStatus.notStarted,
-            description: 'Perfect weather for outdoor activities. Go for a run or hike.',
-            objectives: [
-              QuestObjective(
-                id: 'outdoor_activity',
-                description: 'Complete an outdoor fitness activity',
-                target: 1,
-                type: 'fitness',
-              ),
-            ],
-            rewards: QuestRewards(xp: 60, gold: 30),
-            location: QuestLocation(
-              latitude: _currentPosition.latitude + (Random().nextDouble() - 0.5) * 0.01,
-              longitude: _currentPosition.longitude + (Random().nextDouble() - 0.5) * 0.01,
-            ),
-            tags: ['weather:sunny', 'difficulty:2', 'seasonal:true'],
-          ),
-        ]);
-        break;
+      // Don't auto-complete for testing - just update progress
+      _activeQuests[i] = updatedQuest;
     }
     
-    setState(() {
-      _storylineQuests.addAll(weatherQuests);
-    });
-    
-    _updateQuestMarkers();
+    setState(() {}); // Update UI
   }
 
-  void _generateRandomQuests() {
-    _logDebug('Generating random quests');
+  Future<Quest> _checkQuestProgress(Quest quest) async {
+    List<QuestObjective> updatedObjectives = [];
     
-    // Generate enemy quests
-    final enemyQuests = QuestGeneratorService.generateRandomEnemyQuests(
-      centerLocation: _currentPosition,
-      count: 8,
-      radius: 0.02,
-    );
-    
-    // Generate item quests
-    final itemQuests = QuestGeneratorService.generateRandomItemQuests(
-      centerLocation: _currentPosition,
-      count: 5,
-      radius: 0.02,
-    );
-    
-    // Generate exploration quests
-    final explorationQuests = QuestGeneratorService.generateRandomExplorationQuests(
-      centerLocation: _currentPosition,
-      count: 3,
-      radius: 0.02,
-    );
-    
-    setState(() {
-      _randomQuests.clear();
-      _randomQuests.addAll(enemyQuests);
-      _randomQuests.addAll(itemQuests);
-      _randomQuests.addAll(explorationQuests);
-    });
-    
-    _updateQuestMarkers();
-  }
-
-  /// Load epic fantasy map data
-  Future<void> _loadEpicFantasyMap() async {
-    if (_isLoadingEpicMap) return;
-    
-    _logDebug('Loading epic fantasy map');
-    setState(() {
-      _isLoadingEpicMap = true;
-    });
-    
-    try {
-      final epicMapData = await EpicMapLoader().loadEpicMap();
+    for (final objective in quest.objectives) {
+      int newProgress = objective.progress;
       
-      setState(() {
-        _epicMapData = epicMapData;
-        _isLoadingEpicMap = false;
-      });
-      
-      _logDebug('Epic fantasy map loaded successfully');
-    } catch (e) {
-      _logDebug('Failed to load epic fantasy map: $e');
-      setState(() {
-        _isLoadingEpicMap = false;
-      });
-    }
-  }
-
-  /// Generate trail-based quests from real trail data
-  Future<void> _generateTrailQuests() async {
-    _logDebug('Generating trail quests');
-    
-    try {
-      final trailQuests = await QuestGeneratorService.generateTrailQuests(
-        centerLocation: _currentPosition,
-        radiusKm: 100.0, // Look for trails within 100km
-      );
-      
-      setState(() {
-        _trailQuests.clear();
-        _trailQuests.addAll(trailQuests);
-      });
-      
-      _updateQuestMarkers();
-      _logDebug('Generated ${trailQuests.length} trail quests');
-    } catch (e) {
-      _logDebug('Failed to generate trail quests: $e');
-    }
-  }
-
-  void _checkAndGenerateQuestsIfNeeded() {
-    // Only generate new quests if we don't have any or if we've moved far enough
-    if (_randomQuests.isEmpty) {
-      _generateRandomQuests();
-      return;
-    }
-    
-    // Check if we've moved far enough from existing quests to generate new ones
-    final maxDistance = 0.01; // ~1km
-    bool shouldGenerateNewQuests = true;
-    
-    for (final quest in _randomQuests) {
-      if (quest.location == null) continue;
-      
-      final distance = Geolocator.distanceBetween(
-        _currentPosition.latitude,
-        _currentPosition.longitude,
-        quest.location!.latitude,
-        quest.location!.longitude,
-      );
-      
-      if (distance < maxDistance * 111000) { // Convert to meters
-        shouldGenerateNewQuests = false;
-        break;
-      }
-    }
-    
-    if (shouldGenerateNewQuests) {
-      _logDebug('Player moved far from existing quests, generating new ones');
-      _generateRandomQuests();
-    }
-  }
-
-  void _updateQuestMarkers() {
-    _logDebug('Updating quest markers');
-    
-    // Clear existing markers
-    _enemyMarkers.clear();
-    _itemMarkers.clear();
-    _poiMarkers.clear();
-    _trailMarkers.clear();
-    _storylineMarkers.clear();
-    _playerMarkers.clear();
-    _clusterMarkers.clear();
-    _questClusters.clear();
-    
-    // Get all quests and apply filters
-    final allQuests = [
-      ..._randomQuests,
-      ..._poiQuests,
-      ..._trailQuests,
-      ..._storylineQuests,
-    ];
-    
-    final filteredQuests = _getFilteredQuests(allQuests);
-    
-    // Create clusters for nearby quests
-    _createQuestClusters(filteredQuests);
-    
-    // Add individual markers for non-clustered quests
-    _addIndividualQuestMarkers(filteredQuests);
-  }
-  
-  void _createQuestClusters(List<Quest> quests) {
-    final clusters = <String, List<Quest>>{};
-    
-    for (final quest in quests) {
-      if (quest.location == null) continue;
-      
-      bool addedToCluster = false;
-      
-      // Check if quest should be added to existing cluster
-      for (final clusterId in clusters.keys) {
-        final clusterCenter = _getClusterCenter(clusters[clusterId]!);
-        final distance = Geolocator.distanceBetween(
-          quest.location!.latitude,
-          quest.location!.longitude,
-          clusterCenter.latitude,
-          clusterCenter.longitude,
-        );
-        
-        if (distance <= _clusterRadius) {
-          clusters[clusterId]!.add(quest);
-          addedToCluster = true;
+      switch (objective.type) {
+        case 'steps':
+          final steps = await _fitnessService.stepsToday();
+          newProgress = steps;
           break;
-        }
-      }
-      
-      // Create new cluster if not added to existing
-      if (!addedToCluster) {
-        final clusterId = 'cluster_${quest.location!.latitude}_${quest.location!.longitude}';
-        clusters[clusterId] = [quest];
-      }
-    }
-    
-    // Create cluster markers for clusters with multiple quests
-    for (final entry in clusters.entries) {
-      if (entry.value.length > 1) {
-        _questClusters[entry.key] = entry.value;
-        _addClusterMarker(entry.key, entry.value);
-      }
-    }
-  }
-  
-  LatLng _getClusterCenter(List<Quest> quests) {
-    double totalLat = 0;
-    double totalLng = 0;
-    int count = 0;
-    
-    for (final quest in quests) {
-      if (quest.location != null) {
-        totalLat += quest.location!.latitude;
-        totalLng += quest.location!.longitude;
-        count++;
-      }
-    }
-    
-    return LatLng(totalLat / count, totalLng / count);
-  }
-  
-  void _addClusterMarker(String clusterId, List<Quest> quests) {
-    final center = _getClusterCenter(quests);
-    final questTypes = quests.map((q) => q.type).toSet();
-    
-    _clusterMarkers.add(
-      Marker(
-        markerId: MarkerId(clusterId),
-        position: center,
-        icon: _getClusterIcon(questTypes, quests.length),
-        infoWindow: InfoWindow(
-          title: 'Quest Cluster (${quests.length})',
-          snippet: '${questTypes.length} different quest types',
-          onTap: () => _showClusterDetails(quests),
-        ),
-        onTap: () => _showClusterDetails(quests),
-      ),
-    );
-  }
-  
-  BitmapDescriptor _getClusterIcon(Set<QuestType> questTypes, int count) {
-    // Use different cluster icons based on quest types and count
-    if (count >= 10) {
-              return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueMagenta);
-    } else if (count >= 5) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
-    } else {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow);
-    }
-  }
-  
-  void _showClusterDetails(List<Quest> quests) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Quest Cluster (${quests.length} quests)',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: ListView.builder(
-                itemCount: quests.length,
-                itemBuilder: (context, index) {
-                  final quest = quests[index];
-                  return _buildQuestCard(quest);
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  void _addIndividualQuestMarkers(List<Quest> quests) {
-    for (final quest in quests) {
-      // Skip quests that are part of clusters
-      bool isInCluster = false;
-      for (final clusterQuests in _questClusters.values) {
-        if (clusterQuests.contains(quest)) {
-          isInCluster = true;
+        case 'calories':
+          final calories = await _fitnessService.caloriesBurnedToday();
+          newProgress = calories.round();
           break;
-        }
-      }
-      
-      if (isInCluster) continue;
-      
-      if (quest.location == null) continue;
-      
-      final difficulty = int.tryParse(
-        quest.tags.firstWhere(
-          (tag) => tag.startsWith('difficulty:'),
-          orElse: () => 'difficulty:1',
-        ).split(':')[1],
-      ) ?? 1;
-      
-      final marker = Marker(
-        markerId: MarkerId(quest.id),
-        position: LatLng(quest.location!.latitude, quest.location!.longitude),
-        icon: _getCustomQuestIcon(_getQuestTypeString(quest.type).toLowerCase(), difficulty: difficulty),
-        infoWindow: InfoWindow(
-          title: quest.title,
-          snippet: '${_getDifficultyText(difficulty)} - ${_getQuestTypeString(quest.type)}',
-          onTap: () => _startQuest(quest),
-        ),
-        onTap: () => _startQuest(quest),
-      );
-      
-      // Add to appropriate marker set
-      switch (quest.type) {
-        case QuestType.battle:
-          _enemyMarkers.add(marker);
+        case 'distance':
+          final distance = await _fitnessService.distanceTodayKm();
+          newProgress = (distance * 1000).round(); // Convert to meters
           break;
-        case QuestType.treasure:
-          _itemMarkers.add(marker);
-          break;
-        case QuestType.location:
-          _poiMarkers.add(marker);
-          break;
-        case QuestType.story:
-          _storylineMarkers.add(marker);
+        case 'location':
+          if (quest.location != null) {
+            final distance = Geolocator.distanceBetween(
+              _currentPosition.latitude,
+              _currentPosition.longitude,
+              quest.location!.latitude,
+              quest.location!.longitude,
+            );
+            newProgress = distance <= quest.location!.radius ? 1 : 0;
+          }
           break;
         default:
-          _poiMarkers.add(marker);
+          // Keep existing progress for other types
+          break;
       }
-    }
-  }
-
-  BitmapDescriptor _getCustomQuestIcon(String questType, {int difficulty = 1}) {
-    // Base color based on quest type
-    double hue;
-    switch (questType) {
-      case 'enemy':
-        hue = BitmapDescriptor.hueRed;
-        break;
-      case 'item':
-      case 'treasure':
-        hue = BitmapDescriptor.hueBlue;
-        break;
-      case 'exploration':
-        hue = BitmapDescriptor.hueGreen;
-        break;
-      case 'trail':
-        hue = BitmapDescriptor.hueOrange;
-        break;
-      case 'story':
-      case 'storyline':
-        hue = BitmapDescriptor.hueMagenta;
-        break;
-      case 'fitness':
-        hue = BitmapDescriptor.hueYellow;
-        break;
-      case 'social':
-        hue = BitmapDescriptor.hueCyan;
-        break;
-      default:
-        hue = BitmapDescriptor.hueAzure;
+      
+      updatedObjectives.add(QuestObjective(
+        id: objective.id,
+        description: objective.description,
+        target: objective.target,
+        progress: newProgress,
+        type: objective.type,
+      ));
     }
     
-    // Adjust brightness based on difficulty (1-10 scale)
-    final brightness = 0.3 + (difficulty * 0.07); // 0.3 to 1.0
-    return BitmapDescriptor.defaultMarkerWithHue(hue);
-  }
-  
-  String _getDifficultyText(int difficulty) {
-    if (difficulty <= 2) return 'Easy';
-    if (difficulty <= 4) return 'Normal';
-    if (difficulty <= 6) return 'Hard';
-    if (difficulty <= 8) return 'Expert';
-    return 'Legendary';
-  }
-  
-  Color _getDifficultyColor(int difficulty) {
-    if (difficulty <= 2) return Colors.green;
-    if (difficulty <= 4) return Colors.blue;
-    if (difficulty <= 6) return Colors.orange;
-    if (difficulty <= 8) return Colors.red;
-    return Colors.purple;
-  }
-
-  String _getQuestTypeFromCategory(String category) {
-    switch (category.toLowerCase()) {
-      case 'gym':
-      case 'fitness':
-        return 'fitness';
-      case 'pub':
-      case 'bar':
-      case 'restaurant':
-        return 'social';
-      case 'museum':
-      case 'historic':
-      case 'church':
-        return 'historical';
-      case 'park':
-      case 'recreation':
-        return 'exploration';
-      default:
-        return 'exploration';
-    }
-  }
-
-  void _startQuest(Quest quest) {
-    _logDebug('Starting quest: ${quest.title}');
-    
-    // Navigate to quest detail screen
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => QuestDetailScreen(quest: quest),
-      ),
+    return Quest(
+      id: quest.id,
+      title: quest.title,
+      type: quest.type,
+      category: quest.category,
+      status: updatedObjectives.every((obj) => obj.progress >= obj.target) 
+          ? QuestStatus.completed 
+          : QuestStatus.inProgress,
+      description: quest.description,
+      objectives: updatedObjectives,
+      rewards: quest.rewards,
+      location: quest.location,
+      timeLimit: quest.timeLimit,
+      prerequisites: quest.prerequisites,
+      tags: quest.tags,
+      createdAt: quest.createdAt,
+      completedAt: updatedObjectives.every((obj) => obj.progress >= obj.target) 
+          ? DateTime.now() 
+          : quest.completedAt,
     );
   }
 
-  void _showQuestDetailsDialog(Quest quest) {
+  void _completeQuest(Quest quest) {
+    _logDebug('Quest completed: ${quest.title}');
+    
+    // Get character actions to update character
+    final characterActions = ref.read(characterActionsProvider);
+    final characterAsync = ref.read(characterStreamProvider);
+    final character = characterAsync.value;
+    
+    _logDebug('Character: ${character?.name ?? 'null'}, XP: ${character?.xp ?? 0}');
+    
+    if (character != null) {
+      // Give XP rewards
+      if (quest.rewards.xp > 0) {
+        _logDebug('Giving ${quest.rewards.xp} XP to character ${character.id}');
+        // Update character XP through event bus
+        ref.read(eventBusProvider).publish(Event(
+          type: 'character.add_xp',
+          data: {
+            'characterId': character.id,
+            'xp': quest.rewards.xp,
+          },
+        ));
+        _logDebug('Published character.add_xp event');
+      }
+      
+      // Give skill points for fitness quests
+      if (quest.rewards.skillPoints > 0) {
+        _logDebug('Giving ${quest.rewards.skillPoints} skill points to character ${character.id}');
+        ref.read(eventBusProvider).publish(Event(
+          type: 'character.add_skill_points',
+          data: {
+            'characterId': character.id,
+            'skillPoints': quest.rewards.skillPoints,
+          },
+        ));
+        _logDebug('Published character.add_skill_points event');
+      }
+      
+      // Show completion notification
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Quest completed! +${quest.rewards.xp} XP${quest.rewards.skillPoints > 0 ? ', +${quest.rewards.skillPoints} SP' : ''}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } else {
+      _logDebug('Character is null, cannot give rewards');
+    }
+  }
+
+  void _removeCompletedQuest(String questId) {
+    _activeQuests.removeWhere((quest) => quest.id == questId);
+    setState(() {});
+  }
+
+  void _showQuestSummary() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(quest.title),
+        title: const Text('Quest Summary'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(quest.description),
-            const SizedBox(height: 16),
-            Text('Rewards:', style: Theme.of(context).textTheme.titleSmall),
-            Text('XP: ${quest.rewards.xp}'),
-            Text('Gold: ${quest.rewards.gold}'),
-            if (quest.rewards.items.isNotEmpty)
-              Text('Items: ${quest.rewards.items.join(', ')}'),
-            const SizedBox(height: 16),
-            Text('Distance: ${_calculateDistanceToQuest(quest).toStringAsFixed(0)}m'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _acceptQuest(quest);
-            },
-            child: const Text('Accept Quest'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _acceptQuest(Quest quest) {
-    _logDebug('Accepting quest: ${quest.title}');
-    
-    // Add quest to quest system
-    final questActions = ref.read(questActionsProvider);
-    questActions.addLocationQuest(quest.title, quest.location!.latitude, quest.location!.longitude, 'quest');
-    
-    // Create geofence automatically
-    _createGeofenceForQuest(quest);
-    
-    // Show navigation option
-    _showNavigationToQuest(quest);
-    
-    // Show success message
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Quest accepted: ${quest.title}'),
-        action: SnackBarAction(
-          label: 'View Quests',
-          onPressed: () => _navigateToQuestList(),
-        ),
-      ),
-    );
-  }
-
-  double _calculateDistanceToQuest(Quest quest) {
-    if (quest.location == null) return 0.0;
-    
-    return Geolocator.distanceBetween(
-      _currentPosition.latitude,
-      _currentPosition.longitude,
-      quest.location!.latitude,
-      quest.location!.longitude,
-    );
-  }
-
-  void _createGeofenceForQuest(Quest quest) {
-    if (quest.location == null) return;
-    
-    _logDebug('Creating geofence for quest: ${quest.title}');
-    
-    final geofenceId = 'geofence_${quest.id}';
-    final geofence = Circle(
-      circleId: CircleId(geofenceId),
-      center: LatLng(quest.location!.latitude, quest.location!.longitude),
-      radius: quest.location!.radius,
-      fillColor: Colors.blue.withOpacity(0.2),
-      strokeColor: Colors.blue,
-      strokeWidth: 2,
-    );
-    
-    setState(() {
-      _geofences.add(geofence);
-    });
-  }
-
-  void _showNavigationToQuest(Quest quest) {
-    if (quest.location == null) return;
-    
-    _logDebug('Showing navigation to quest: ${quest.title}');
-    
-    // Get route to quest
-    NavigationService.getRoute(
-      origin: _currentPosition,
-      destination: LatLng(quest.location!.latitude, quest.location!.longitude),
-      mode: 'walking',
-    ).then((routeInfo) {
-      if (routeInfo != null) {
-        setState(() {
-          _currentRoute = routeInfo;
-          _navigationRoutes.add(
-            Polyline(
-              polylineId: PolylineId('route_to_${quest.id}'),
-              points: routeInfo.polylinePoints,
-              color: Colors.blue,
-              width: 4,
-            ),
-          );
-        });
-        
-        // Show route info in a snackbar
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Route to ${quest.title}: ${routeInfo.distance} (${routeInfo.duration})'),
-            action: SnackBarAction(
-              label: 'View Quests',
-              onPressed: () => _navigateToQuestList(),
-            ),
-          ),
-        );
-      }
-    });
-  }
-
-  void _startTrailQuest(Quest trailQuest) {
-    _logDebug('Starting trail quest: ${trailQuest.title}');
-    _startQuest(trailQuest);
-  }
-
-  void _navigateToQuestList() {
-    // Navigate to quest list using MaterialPageRoute instead of named route
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const QuestListScreen(),
-      ),
-    );
-  }
-
-  void _showQuestPanel() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _buildQuestPanel(),
-    );
-  }
-
-  Widget _buildQuestPanel() {
-    final allQuests = [
-      ..._randomQuests,
-      ..._poiQuests,
-      ..._trailQuests,
-      ..._storylineQuests,
-    ];
-
-    // Sort quests by distance
-    allQuests.sort((a, b) {
-      if (a.location == null) return 1;
-      if (b.location == null) return -1;
-      
-      final distanceA = _calculateDistanceToQuest(a);
-      final distanceB = _calculateDistanceToQuest(b);
-      return distanceA.compareTo(distanceB);
-    });
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      minChildSize: 0.3,
-      maxChildSize: 0.9,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              // Handle bar
-              Container(
-                margin: const EdgeInsets.only(top: 8),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    const Icon(Icons.quest, color: Colors.orange),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Nearby Quests (${allQuests.length})',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
-                ),
-              ),
-              // Search bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Search quests...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                              _updateQuestMarkers();
-                            },
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[100],
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value;
-                    });
-                    _updateQuestMarkers();
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-              
-              // Quest filters
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    // Type filters
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          _buildFilterChip('All', null),
-                          _buildFilterChip('Enemy', QuestType.battle),
-                          _buildFilterChip('Treasure', QuestType.treasure),
-                          _buildFilterChip('Exploration', QuestType.location),
-                          _buildFilterChip('Trail', null, isTrail: true),
-                          _buildFilterChip('Story', QuestType.story),
-                          _buildFilterChip('Fitness', QuestType.fitness),
-                          _buildFilterChip('Social', QuestType.social),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    
-                    // Difficulty filters
-                    _buildDifficultyFilter(),
-                    
-                    // Show completed quests toggle
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: _showCompletedQuests,
-                          onChanged: (value) {
-                            setState(() {
-                              _showCompletedQuests = value ?? false;
-                            });
-                            _updateQuestMarkers();
-                          },
-                        ),
-                        const Text('Show completed quests'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              // Quest list
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: allQuests.length,
-                  itemBuilder: (context, index) {
-                    final quest = allQuests[index];
-                    return _buildQuestCard(quest);
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // Quest filtering state
-  QuestType? _selectedFilter;
-  String _searchQuery = '';
-  int? _selectedDifficulty;
-  bool _showCompletedQuests = false;
-  
-  Widget _buildFilterChip(String label, QuestType? type, {bool isTrail = false}) {
-    final isSelected = _selectedFilter == type;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: FilterChip(
-        label: Text(label),
-        selected: isSelected,
-        onSelected: (selected) {
-          setState(() {
-            _selectedFilter = selected ? type : null;
-          });
-          _updateQuestMarkers();
-        },
-        backgroundColor: Colors.grey[200],
-        selectedColor: Colors.orange[200],
-      ),
-    );
-  }
-  
-  Widget _buildDifficultyFilter() {
-    return Container(
-      height: 40,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: 6, // 0-5 difficulty levels
-        itemBuilder: (context, index) {
-          final difficulty = index == 0 ? null : index;
-          final isSelected = _selectedDifficulty == difficulty;
-          final label = index == 0 ? 'All' : 'Lv.$index';
-          final color = index == 0 ? Colors.grey : _getDifficultyColor(index);
-          
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Text(label),
-              selected: isSelected,
-              onSelected: (selected) {
-                setState(() {
-                  _selectedDifficulty = selected ? difficulty : null;
-                });
-                _updateQuestMarkers();
-              },
-              backgroundColor: Colors.grey[200],
-              selectedColor: color.withOpacity(0.3),
-            ),
-          );
-        },
-      ),
-    );
-  }
-  
-  List<Quest> _getFilteredQuests(List<Quest> allQuests) {
-    return allQuests.where((quest) {
-      // Filter by type
-      if (_selectedFilter != null && quest.type != _selectedFilter) {
-        return false;
-      }
-      
-      // Filter by search query
-      if (_searchQuery.isNotEmpty) {
-        final query = _searchQuery.toLowerCase();
-        if (!quest.title.toLowerCase().contains(query) &&
-            !quest.description.toLowerCase().contains(query)) {
-          return false;
-        }
-      }
-      
-      // Filter by difficulty (extract from quest tags)
-      if (_selectedDifficulty != null) {
-        final difficultyTag = quest.tags.firstWhere(
-          (tag) => tag.startsWith('difficulty:'),
-          orElse: () => 'difficulty:1',
-        );
-        final questDifficulty = int.tryParse(difficultyTag.split(':')[1]) ?? 1;
-        if (questDifficulty != _selectedDifficulty) {
-          return false;
-        }
-      }
-      
-      // Filter completed quests
-      if (!_showCompletedQuests && quest.status == QuestStatus.completed) {
-        return false;
-      }
-      
-      return true;
-    }).toList();
-  }
-
-  Widget _buildQuestCard(Quest quest) {
-    final distance = _calculateDistanceToQuest(quest);
-    final questType = _getQuestTypeString(quest.type);
-    final questColor = _getQuestTypeColor(quest.type);
-    final difficulty = int.tryParse(
-      quest.tags.firstWhere(
-        (tag) => tag.startsWith('difficulty:'),
-        orElse: () => 'difficulty:1',
-      ).split(':')[1],
-    ) ?? 1;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 2,
-      child: ListTile(
-        leading: Stack(
-          children: [
-            CircleAvatar(
-              backgroundColor: questColor,
-              child: Icon(
-                _getQuestTypeIcon(quest.type),
-                color: Colors.white,
-              ),
-            ),
-            if (quest.status == QuestStatus.completed)
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(
-                    color: Colors.green,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.check,
-                    color: Colors.white,
-                    size: 12,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                quest.title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: _getDifficultyColor(difficulty).withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _getDifficultyColor(difficulty)),
-              ),
-              child: Text(
-                _getDifficultyText(difficulty),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: _getDifficultyColor(difficulty),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              quest.description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 4),
-                Text('${distance.toStringAsFixed(0)}m'),
-                const SizedBox(width: 16),
-                Icon(Icons.star, size: 16, color: Colors.orange),
-                const SizedBox(width: 4),
-                Text('${quest.rewards.xp} XP'),
-                if (quest.rewards.gold > 0) ...[
-                  const SizedBox(width: 16),
-                  Icon(Icons.monetization_on, size: 16, color: Colors.amber),
-                  const SizedBox(width: 4),
-                  Text('${quest.rewards.gold} Gold'),
-                ],
-              ],
-            ),
-            if (quest.objectives.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Objectives: ${quest.objectives.length}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
-          ],
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                setState(() {
-                  _selectedQuestId = quest.id;
-                });
-                _startQuest(quest);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: questColor,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(60, 32),
-              ),
-              child: const Text('Start'),
-            ),
-            const SizedBox(height: 4),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _showQuestStatistics(quest);
-              },
-              child: const Text(
-                'Stats',
-                style: TextStyle(fontSize: 10),
-              ),
-            ),
-          ],
-        ),
-        onTap: () {
-          Navigator.of(context).pop();
-          setState(() {
-            _selectedQuestId = quest.id;
-          });
-          _startQuest(quest);
-        },
-      ),
-    );
-  }
-  
-  void _showQuestStatistics(Quest quest) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Quest Statistics: ${quest.title}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildStatRow('Type', _getQuestTypeString(quest.type)),
-            _buildStatRow('Difficulty', _getDifficultyText(int.tryParse(
-              quest.tags.firstWhere(
-                (tag) => tag.startsWith('difficulty:'),
-                orElse: () => 'difficulty:1',
-              ).split(':')[1],
-            ) ?? 1)),
-            _buildStatRow('Status', quest.status.name),
-            _buildStatRow('Objectives', '${quest.objectives.length}'),
-            _buildStatRow('Rewards', '${quest.rewards.xp} XP, ${quest.rewards.gold} Gold'),
-            if (quest.location != null) ...[
-              _buildStatRow('Distance', '${_calculateDistanceToQuest(quest).toStringAsFixed(0)}m'),
-              _buildStatRow('Location', '${quest.location!.latitude.toStringAsFixed(4)}, ${quest.location!.longitude.toStringAsFixed(4)}'),
-            ],
-            const SizedBox(height: 16),
-            const Text('Tags:', style: TextStyle(fontWeight: FontWeight.bold)),
-            Wrap(
-              children: quest.tags.map((tag) => Chip(
-                label: Text(tag),
-                backgroundColor: Colors.grey[200],
-              )).toList(),
-            ),
+            Text('Available Quests: ${_availableQuests.length}'),
+            Text('Active Quests: ${_activeQuests.length}'),
+            Text('Completed Today: ${_activeQuests.where((q) => q.status == QuestStatus.completed).length}'),
           ],
         ),
         actions: [
@@ -1253,366 +263,746 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
     );
   }
-  
-  Widget _buildStatRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+
+  Widget _buildGpsSpoofer() {
+    return Container(
+      width: 200,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.withOpacity(0.5)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text('$label:', style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text(value),
+          Row(
+            children: [
+              const Icon(Icons.gps_fixed, color: Colors.orange, size: 16),
+              const SizedBox(width: 8),
+              const Text(
+                'GPS Spoofer',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => setState(() => _showGpsSpoofer = false),
+                child: const Icon(Icons.close, color: Colors.grey, size: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // Movement controls
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildDirectionButton('↑', () => _movePlayer(0, -1)),
+              _buildDirectionButton('↓', () => _movePlayer(0, 1)),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildDirectionButton('←', () => _movePlayer(-1, 0)),
+              _buildDirectionButton('→', () => _movePlayer(1, 0)),
+            ],
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // Speed control
+          Row(
+            children: [
+              const Text(
+                'Speed:',
+                style: TextStyle(color: Colors.white, fontSize: 12),
+              ),
+              Expanded(
+                child: Slider(
+                  value: _spoofSpeed,
+                  min: 0.0001,
+                  max: 0.01,
+                  divisions: 100,
+                  activeColor: Colors.orange,
+                  onChanged: (value) {
+                    setState(() {
+                      _spoofSpeed = value;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          
+          Text(
+            'Lat: ${_spoofLatitude.toStringAsFixed(6)}',
+            style: const TextStyle(color: Colors.white, fontSize: 10),
+          ),
+          Text(
+            'Lng: ${_spoofLongitude.toStringAsFixed(6)}',
+            style: const TextStyle(color: Colors.white, fontSize: 10),
+          ),
         ],
       ),
     );
   }
 
-  String _getQuestTypeString(QuestType type) {
-    switch (type) {
-      case QuestType.battle:
-        return 'Enemy';
-      case QuestType.treasure:
-        return 'Treasure';
-      case QuestType.location:
-        return 'Exploration';
-      case QuestType.story:
-        return 'Story';
-      case QuestType.fitness:
-        return 'Fitness';
-      case QuestType.social:
-        return 'Social';
-      case QuestType.daily:
-        return 'Daily';
-      case QuestType.weekly:
-        return 'Weekly';
-    }
-  }
-
-  Color _getQuestTypeColor(QuestType type) {
-    switch (type) {
-      case QuestType.battle:
-        return Colors.red;
-      case QuestType.treasure:
-        return Colors.blue;
-      case QuestType.location:
-        return Colors.green;
-      case QuestType.story:
-        return Colors.purple;
-      case QuestType.fitness:
-        return Colors.orange;
-      case QuestType.social:
-        return Colors.cyan;
-      case QuestType.daily:
-        return Colors.yellow;
-      case QuestType.weekly:
-        return Colors.indigo;
-    }
-  }
-
-  IconData _getQuestTypeIcon(QuestType type) {
-    switch (type) {
-      case QuestType.battle:
-        return Icons.sword;
-      case QuestType.treasure:
-        return Icons.chest;
-      case QuestType.location:
-        return Icons.explore;
-      case QuestType.story:
-        return Icons.book;
-      case QuestType.fitness:
-        return Icons.fitness_center;
-      case QuestType.social:
-        return Icons.people;
-      case QuestType.daily:
-        return Icons.today;
-      case QuestType.weekly:
-        return Icons.calendar_view_week;
-    }
-  }
-
-  void _toggleLocationTracking() {
-    setState(() {
-      _isTracking = !_isTracking;
-    });
-
-    if (_isTracking) {
-      _startLocationTracking();
-    } else {
-      _stopLocationTracking();
-    }
-  }
-
-  void _startLocationTracking() {
-    _logDebug('Starting location tracking');
-    _locationSubscription?.cancel();
-    
-    _locationSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // Update every 10 meters
-      ),
-    ).listen(
-      (Position position) {
-        if (!_disposed) {
-          setState(() {
-            _currentPosition = LatLng(position.latitude, position.longitude);
-          });
-          _onLocationChanged();
-        }
-      },
-      onError: (error) {
-        _logDebug('Location tracking error: $error');
-      },
-    );
-  }
-
-  void _stopLocationTracking() {
-    _logDebug('Stopping location tracking');
-    _locationSubscription?.cancel();
-  }
-
-  void _navigateToSelectedQuest() {
-    if (_selectedQuestId == null) return;
-
-    final allQuests = [
-      ..._randomQuests,
-      ..._poiQuests,
-      ..._trailQuests,
-      ..._storylineQuests,
-    ];
-
-    final selectedQuest = allQuests.firstWhere(
-      (quest) => quest.id == _selectedQuestId,
-      orElse: () => throw Exception('Selected quest not found'),
-    );
-
-    if (selectedQuest.location == null) {
-      _logDebug('Selected quest has no location');
-      return;
-    }
-
-    _logDebug('Navigating to quest: ${selectedQuest.title}');
-    _getRouteToQuest(selectedQuest);
-  }
-
-  Future<void> _getRouteToQuest(Quest quest) async {
-    try {
-      final route = await NavigationService.getRoute(
-        origin: _currentPosition,
-        destination: LatLng(quest.location!.latitude, quest.location!.longitude),
-      );
-
-      if (route != null) {
-        setState(() {
-          _currentRoute = route;
-          _navigationRoutes.clear();
-          _navigationRoutes.add(
-            Polyline(
-              polylineId: const PolylineId('quest_route'),
-              points: route.points,
-              color: Colors.purple,
-              width: 4,
+  Widget _buildDirectionButton(String direction, VoidCallback onPressed) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.orange.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orange.withOpacity(0.5)),
+        ),
+        child: Center(
+          child: Text(
+            direction,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
             ),
-          );
-        });
-
-        // Animate camera to show the route
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLngBounds(
-            _getBoundsForRoute(route.points),
-            50.0,
           ),
-        );
-
-        _logDebug('Route drawn to quest');
-      } else {
-        _logDebug('Failed to get route to quest');
-      }
-    } catch (e) {
-      _logDebug('Error getting route: $e');
-    }
-  }
-
-  LatLngBounds _getBoundsForRoute(List<LatLng> points) {
-    if (points.isEmpty) {
-      return LatLngBounds(
-        southwest: _currentPosition,
-        northeast: _currentPosition,
-      );
-    }
-
-    double minLat = points.first.latitude;
-    double maxLat = points.first.latitude;
-    double minLng = points.first.longitude;
-    double maxLng = points.first.longitude;
-
-    for (final point in points) {
-      minLat = min(minLat, point.latitude);
-      maxLat = max(maxLat, point.latitude);
-      minLng = min(minLng, point.longitude);
-      maxLng = max(maxLng, point.longitude);
-    }
-
-    return LatLngBounds(
-      southwest: LatLng(minLat, minLng),
-      northeast: LatLng(maxLat, maxLng),
+        ),
+      ),
     );
   }
 
-  void _startEnemyMovement() {
-    _enemyMovementTimer?.cancel();
-    _enemyMovementTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (_disposed) {
-        timer.cancel();
-        return;
+  void _movePlayer(int dx, int dy) {
+    setState(() {
+      _spoofLatitude += dy * _spoofSpeed;
+      _spoofLongitude += dx * _spoofSpeed;
+      _currentPosition = LatLng(_spoofLatitude, _spoofLongitude);
+    });
+    
+    // Update player marker
+    _updatePlayerMarker();
+    
+    // Check for nearby quests
+    _checkNearbyQuests();
+    
+    // Generate new quests if needed
+    _generateDynamicQuests();
+  }
+
+  void _checkNearbyQuests() {
+    for (final quest in _availableQuests) {
+      if (quest.location != null) {
+        final distance = Geolocator.distanceBetween(
+          _currentPosition.latitude,
+          _currentPosition.longitude,
+          quest.location!.latitude,
+          quest.location!.longitude,
+        );
+        
+        // Dynamic distance based on quest type
+        double requiredDistance = _getQuestRequiredDistance(quest.type);
+        
+        if (distance <= requiredDistance) {
+          _logDebug('Near quest: ${quest.title} (${distance.round()}m away, required: ${requiredDistance.round()}m)');
+          
+          // Auto-start quest if close enough
+          if (distance <= requiredDistance && quest.status == QuestStatus.notStarted) {
+            _startQuest(quest);
+          }
+        }
+      }
+    }
+  }
+
+  double _getQuestRequiredDistance(QuestType type) {
+    switch (type) {
+      case QuestType.battle:
+        return 30.0; // Need to be close for combat
+      case QuestType.location:
+        return 10.0; // Exact location required
+      case QuestType.treasure:
+        return 20.0; // Close to treasure
+      case QuestType.fitness:
+        return 100.0; // Can be done anywhere in area
+      case QuestType.social:
+        return 50.0; // Social interaction range
+      case QuestType.story:
+        return 25.0; // Story quest range
+      case QuestType.daily:
+        return 15.0; // Daily quest range
+      case QuestType.weekly:
+        return 40.0; // Weekly quest range
+      default:
+        return 50.0;
+    }
+  }
+
+  void _generateDynamicQuests() {
+    // Generate new quests around current position
+    if (_availableQuests.length < 20) { // Keep quest count manageable
+      final newQuests = <Quest>[];
+      
+      // Generate static quests at fixed locations
+      for (int i = 0; i < 2; i++) {
+        final questType = QuestType.values[_random.nextInt(QuestType.values.length)];
+        final quest = _createStaticQuest(questType, i);
+        newQuests.add(quest);
       }
       
-      _updateMovingEnemies();
+      // Generate patrolling quests that move
+      for (int i = 0; i < 2; i++) {
+        final questType = QuestType.values[_random.nextInt(QuestType.values.length)];
+        final quest = _createPatrollingQuest(questType, i);
+        newQuests.add(quest);
+      }
+      
+      // Generate dynamic quests near player
+      for (int i = 0; i < 3; i++) {
+        final questType = QuestType.values[_random.nextInt(QuestType.values.length)];
+        final quest = _createDynamicQuest(questType, i);
+        newQuests.add(quest);
+      }
+      
+      _availableQuests.addAll(newQuests);
+      _updateQuestMarkers();
+      _logDebug('Generated ${newQuests.length} new quests (static, patrolling, dynamic)');
+    }
+  }
+
+  Quest _createStaticQuest(QuestType type, int index) {
+    final questId = 'static_quest_${DateTime.now().millisecondsSinceEpoch}_$index';
+    
+    // Create quest at a fixed location (not near player)
+    final baseLat = 52.199424 + (_random.nextDouble() - 0.5) * 0.01; // Within ~1km
+    final baseLng = -0.884736 + (_random.nextDouble() - 0.5) * 0.01;
+    
+    return Quest(
+      id: questId,
+      title: 'Static ${type.name} Quest ${index + 1}',
+      type: type,
+      category: QuestCategory.side,
+      status: QuestStatus.notStarted,
+      description: 'A quest that remains at a fixed location.',
+      location: QuestLocation(
+        latitude: baseLat,
+        longitude: baseLng,
+        name: 'Static Location ${index + 1}',
+      ),
+      rewards: QuestRewards(xp: 75 + _random.nextInt(100), gold: 50 + _random.nextInt(75)),
+      tags: ['static', 'fixed'],
+    );
+  }
+
+  Quest _createPatrollingQuest(QuestType type, int index) {
+    final questId = 'patrol_quest_${DateTime.now().millisecondsSinceEpoch}_$index';
+    
+    // Create quest that "patrols" around an area
+    final centerLat = 52.199424 + (_random.nextDouble() - 0.5) * 0.005;
+    final centerLng = -0.884736 + (_random.nextDouble() - 0.5) * 0.005;
+    
+    return Quest(
+      id: questId,
+      title: 'Patrolling ${type.name} Quest ${index + 1}',
+      type: type,
+      category: QuestCategory.adventure,
+      status: QuestStatus.notStarted,
+      description: 'A quest that patrols around the area.',
+      location: QuestLocation(
+        latitude: centerLat,
+        longitude: centerLng,
+        radius: 100, // Larger radius for patrolling
+        name: 'Patrol Area ${index + 1}',
+      ),
+      rewards: QuestRewards(xp: 100 + _random.nextInt(150), gold: 75 + _random.nextInt(100)),
+      tags: ['patrolling', 'mobile'],
+    );
+  }
+
+  Quest _createDynamicQuest(QuestType type, int index) {
+    final questId = 'dynamic_quest_${DateTime.now().millisecondsSinceEpoch}_$index';
+    
+    return Quest(
+      id: questId,
+      title: 'Dynamic ${type.name} Quest ${index + 1}',
+      type: type,
+      category: QuestCategory.side,
+      status: QuestStatus.notStarted,
+      description: 'A dynamically generated quest near your location.',
+      location: QuestLocation(
+        latitude: _currentPosition.latitude + (_random.nextDouble() - 0.5) * 0.005,
+        longitude: _currentPosition.longitude + (_random.nextDouble() - 0.5) * 0.005,
+        name: 'Dynamic Location ${index + 1}',
+      ),
+      rewards: QuestRewards(xp: 50 + _random.nextInt(100), gold: 25 + _random.nextInt(50)),
+      tags: ['dynamic', 'generated'],
+    );
+  }
+
+  void _addActiveQuest(Quest quest) {
+    if (!_activeQuests.any((q) => q.id == quest.id)) {
+      _activeQuests.add(quest);
+      setState(() {});
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeAnimations();
+    _initializeMap();
+    _initializeActiveQuestTracking();
+  }
+
+  void _initializeAnimations() {
+    _overlayAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _questHoverController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    
+    _overlaySlideAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(
+      parent: _overlayAnimationController,
+      curve: Curves.easeOutCubic,
+    ));
+    
+    _questHoverAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _questHoverController,
+      curve: Curves.easeOutBack,
+    ));
+  }
+
+  void _initializeMap() {
+    _logDebug('initState called');
+    _loadEpicFantasyMap();
+    _generateQuests();
+    _initializeWeatherSystem();
+    _requestLocationPermission();
+  }
+
+  void _loadEpicFantasyMap() {
+    _logDebug('Loading epic fantasy map');
+    setState(() {
+      _isLoadingEpicMap = true;
+    });
+
+    EpicMapLoader().loadEpicMap().then((mapData) {
+      if (!_disposed) {
+        setState(() {
+          _epicMapData = mapData;
+          _isLoadingEpicMap = false;
+        });
+        _logDebug('Epic fantasy map loaded successfully');
+      }
+    }).catchError((error) {
+      _logDebug('Error loading epic map: $error');
+      setState(() {
+        _isLoadingEpicMap = false;
+      });
     });
   }
 
-  void _updateMovingEnemies() {
-    for (final quest in _randomQuests.where((q) => 
-      q.type == QuestType.battle && 
-      q.tags.any((tag) => tag == 'is_patrolling:true')
-    )) {
-      final enemyType = quest.tags.firstWhere((tag) => tag.startsWith('enemy_type:')).split(':')[1];
-      final patrolSpeed = double.parse(quest.tags.firstWhere((tag) => tag.startsWith('patrol_speed:')).split(':')[1]);
+  void _generateQuests() {
+    _logDebug('Generating quests');
+    
+    // Generate some sample quests
+    _availableQuests.clear();
+    
+    // Battle quests
+    for (int i = 0; i < 5; i++) {
+      final quest = Quest(
+        id: 'battle_quest_$i',
+        title: 'Defeat the ${_getEnemyName(i)}',
+        type: QuestType.battle,
+        category: QuestCategory.adventure,
+        status: QuestStatus.notStarted,
+        description: 'A dangerous enemy has appeared in the area. Defeat them to earn rewards.',
+        location: QuestLocation(
+          latitude: _currentPosition.latitude + (_random.nextDouble() - 0.5) * 0.01,
+          longitude: _currentPosition.longitude + (_random.nextDouble() - 0.5) * 0.01,
+          name: 'Battle Arena ${i + 1}',
+        ),
+        rewards: QuestRewards(xp: 100 + i * 50, gold: 50 + i * 25),
+        tags: ['combat', 'battle'],
+      );
+      _availableQuests.add(quest);
+    }
+    
+    // Location quests
+    for (int i = 0; i < 3; i++) {
+      final quest = Quest(
+        id: 'location_quest_$i',
+        title: 'Explore ${_getLocationName(i)}',
+        type: QuestType.location,
+        category: QuestCategory.adventure,
+        status: QuestStatus.notStarted,
+        description: 'Visit this location to discover its secrets.',
+        location: QuestLocation(
+          latitude: _currentPosition.latitude + (_random.nextDouble() - 0.5) * 0.01,
+          longitude: _currentPosition.longitude + (_random.nextDouble() - 0.5) * 0.01,
+          name: _getLocationName(i),
+        ),
+        rewards: QuestRewards(xp: 75 + i * 25, gold: 30 + i * 15),
+        tags: ['exploration', 'location'],
+      );
+      _availableQuests.add(quest);
+    }
+    
+    // Treasure quests
+    for (int i = 0; i < 2; i++) {
+      final quest = Quest(
+        id: 'treasure_quest_$i',
+        title: 'Find the ${_getTreasureName(i)}',
+        type: QuestType.treasure,
+        category: QuestCategory.side,
+        status: QuestStatus.notStarted,
+        description: 'Search for hidden treasure in this area.',
+        location: QuestLocation(
+          latitude: _currentPosition.latitude + (_random.nextDouble() - 0.5) * 0.01,
+          longitude: _currentPosition.longitude + (_random.nextDouble() - 0.5) * 0.01,
+          name: 'Treasure Location ${i + 1}',
+        ),
+        rewards: QuestRewards(xp: 50 + i * 25, gold: 100 + i * 50, gems: 1),
+        tags: ['treasure', 'collection'],
+      );
+      _availableQuests.add(quest);
+    }
+    
+    // Fitness quests
+    for (int i = 0; i < 3; i++) {
+      final fitnessObjectives = [
+        QuestObjective(
+          id: 'steps_$i',
+          description: 'Walk ${5000 + i * 2000} steps',
+          target: 5000 + i * 2000,
+          progress: 0,
+          type: 'steps',
+        ),
+        QuestObjective(
+          id: 'calories_$i',
+          description: 'Burn ${200 + i * 100} calories',
+          target: 200 + i * 100,
+          progress: 0,
+          type: 'calories',
+        ),
+        QuestObjective(
+          id: 'distance_$i',
+          description: 'Walk ${3.0 + i * 1.5} km',
+          target: (3000 + i * 1500).round(), // Convert to meters
+          progress: 0,
+          type: 'distance',
+        ),
+      ];
       
-      final currentPos = _movingEnemies[quest.id] ?? LatLng(quest.location!.latitude, quest.location!.longitude);
-      
-      // Move enemy in a random direction
-      final random = Random();
-      final angle = random.nextDouble() * 2 * pi;
-      final distance = patrolSpeed;
-      
-      final newLat = currentPos.latitude + (distance * cos(angle));
-      final newLng = currentPos.longitude + (distance * sin(angle));
-      
-      _movingEnemies[quest.id] = LatLng(newLat, newLng);
+      final quest = Quest(
+        id: 'fitness_quest_$i',
+        title: 'Fitness Challenge ${i + 1}',
+        type: QuestType.fitness,
+        category: QuestCategory.side,
+        status: QuestStatus.notStarted,
+        description: 'Complete fitness goals to improve your character stats.',
+        objectives: [fitnessObjectives[i]], // Use one objective per quest
+        rewards: QuestRewards(
+          xp: 75 + i * 25, 
+          gold: 30 + i * 15,
+          skillPoints: 1, // Fitness quests give skill points
+        ),
+        tags: ['fitness', 'health'],
+      );
+      _availableQuests.add(quest);
     }
     
     _updateQuestMarkers();
   }
 
-  Future<void> _requestLocationPermission() async {
-    _logDebug('Requesting location permission');
-    
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _logDebug('Location services are disabled');
+  String _getEnemyName(int index) {
+    final enemies = ['Dire Wolf', 'Goblin Scout', 'Orc Warrior', 'Troll', 'Dragon'];
+    return enemies[index % enemies.length];
+  }
+
+  String _getLocationName(int index) {
+    final locations = ['Ancient Ruins', 'Mysterious Cave', 'Hidden Temple'];
+    return locations[index % locations.length];
+  }
+
+  String _getTreasureName(int index) {
+    final treasures = ['Golden Chalice', 'Crystal Sword'];
+    return treasures[index % treasures.length];
+  }
+
+  void _initializeWeatherSystem() {
+    _logDebug('Initializing weather system');
+    if (!_isWeatherEnabled) {
+      _logDebug('Weather update disabled for now');
       return;
     }
 
-    PermissionStatus status = await Permission.location.request();
-    
-    if (status.isGranted) {
-      _logDebug('Location permission granted');
-      setState(() {
-        _locationPermissionGranted = true;
-      });
-      _getCurrentLocation();
-    }
+    _weatherUpdateTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      if (!_disposed && _isWeatherEnabled) {
+        _updateWeather();
+      }
+    });
   }
 
-  Future<void> _getCurrentLocation() async {
-    _logDebug('Getting current location');
-    try {
-      // Check if location services are enabled
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _logDebug('Location services are disabled');
-        return;
-      }
-
-      // Check location permission
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          _logDebug('Location permission denied');
-          return;
-        }
-      }
-      
-      if (permission == LocationPermission.deniedForever) {
-        _logDebug('Location permission denied forever');
-        return;
-      }
-
-      // Get current position with high accuracy
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 15),
+  void _updateWeather() {
+    // Mock weather update for now
+    setState(() {
+      _currentWeather = WeatherData(
+        temperature: 15.0 + (_random.nextDouble() - 0.5) * 10,
+        condition: 'Partly Cloudy',
+        humidity: 60.0 + _random.nextDouble() * 20,
+        pressure: 1013.0 + (_random.nextDouble() - 0.5) * 10,
+        windSpeed: _random.nextDouble() * 20,
+        icon: 'cloud',
       );
-      
-      _logDebug('Current location: ${position.latitude}, ${position.longitude}');
-      
-      if (mounted) {
+    });
+  }
+
+  void _requestLocationPermission() {
+    _logDebug('Requesting location permission');
+    Permission.location.request().then((status) {
+      if (status.isGranted) {
         setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
+          _locationPermissionGranted = true;
         });
-        
-        // Move camera to current location
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(_currentPosition, 15.0),
-        );
-        
-        _logDebug('Camera moved to current location');
-        
-        // Only load POIs, don't regenerate quests
-        _loadPOIsAroundCurrentLocation();
-        
-        // Check if we need to generate new quests based on distance
-        _checkAndGenerateQuestsIfNeeded();
+        _logDebug('Location permission granted');
+        _getCurrentLocation();
+        _startLocationTracking();
+      } else {
+        _logDebug('Location permission denied');
       }
-    } catch (e) {
-      _logDebug('Error getting location: $e');
-      // Fallback to a default location if GPS fails
-      setState(() {
-        _currentPosition = const LatLng(52.232192, -0.8912896); // Northampton area
-      });
-    }
+    });
+  }
+
+  void _getCurrentLocation() {
+    _logDebug('Getting current location');
+    Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    ).then((position) {
+      if (!_disposed) {
+        final newPosition = LatLng(position.latitude, position.longitude);
+        setState(() {
+          _currentPosition = newPosition;
+        });
+        _logDebug('Current location: ${position.latitude}, ${position.longitude}');
+        _moveCameraToCurrentLocation();
+        _loadPOIsAroundLocation();
+      }
+    }).catchError((error) {
+      _logDebug('Error getting location: $error');
+    });
   }
 
   void _startLocationTracking() {
-    _logDebug('_startLocationTracking called');
-    if (_isTracking) return;
-    
-    if (!_locationPermissionGranted) {
-      _logDebug('Location permission not granted, requesting permission');
-      _requestLocationPermission();
-      return;
-    }
-    
-    _logDebug('Started real location tracking');
-    setState(() {
-      _isTracking = true;
-    });
-    
+    _logDebug('Starting location tracking');
     _locationSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 10, // Update every 10 meters
       ),
-    ).listen((Position position) {
-      _logDebug('Real location update: ${position.latitude}, ${position.longitude}');
-      
-      if (mounted) {
+    ).listen((position) {
+      if (!_disposed) {
+        final newPosition = LatLng(position.latitude, position.longitude);
         setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
+          _currentPosition = newPosition;
         });
-        
-        _checkNearbyQuests();
-        _updateQuestMarkers();
+        _updatePlayerMarker();
       }
     });
   }
 
-  void _checkNearbyQuests() {
-    for (final quest in _randomQuests) {
-      if (quest.location == null) continue;
-      
+  void _moveCameraToCurrentLocation() {
+    _logDebug('Camera moved to current location');
+    _mapController?.animateCamera(
+      CameraUpdate.newLatLngZoom(_currentPosition, 15.0),
+    );
+  }
+
+  void _updateCompassRotation() {
+    // Update compass based on map bearing
+    if (_mapController != null) {
+      _mapController!.getVisibleRegion().then((bounds) {
+        // Calculate bearing from current position to map center
+        final centerLat = (bounds.northeast.latitude + bounds.southwest.latitude) / 2;
+        final centerLng = (bounds.northeast.longitude + bounds.southwest.longitude) / 2;
+        
+        final bearing = Geolocator.bearingBetween(
+          _currentPosition.latitude,
+          _currentPosition.longitude,
+          centerLat,
+          centerLng,
+        );
+        
+        setState(() {
+          _compassRotation = bearing;
+        });
+      });
+    }
+  }
+
+  void _loadPOIsAroundLocation() {
+    _logDebug('Loading POIs around current location');
+    setState(() {
+      _isLoadingPOIs = true;
+    });
+
+    // Mock POI loading for now
+    Future.delayed(const Duration(seconds: 1), () {
+      if (!_disposed) {
+        setState(() {
+          _realPOIs.clear();
+          // Add some mock POIs
+          for (int i = 0; i < 5; i++) {
+            _realPOIs.add(POI(
+              id: 'poi_$i',
+              name: _getPOIName(i),
+              type: _getPOIType(i),
+              latitude: _currentPosition.latitude + (_random.nextDouble() - 0.5) * 0.005,
+              longitude: _currentPosition.longitude + (_random.nextDouble() - 0.5) * 0.005,
+              rating: 4.0 + _random.nextDouble(),
+            ));
+          }
+          _isLoadingPOIs = false;
+        });
+        _logDebug('Loaded ${_realPOIs.length} POIs');
+      }
+    });
+  }
+
+  String _getPOIName(int index) {
+    final names = ['The Red Lion', 'Central Gym', 'Museum of History', 'City Park', 'Shopping Center'];
+    return names[index % names.length];
+  }
+
+  String _getPOIType(int index) {
+    final types = ['pub', 'gym', 'museum', 'park', 'shopping'];
+    return types[index % types.length];
+  }
+
+  void _updateQuestMarkers() {
+    _logDebug('Updating quest markers');
+    
+    // Clear existing markers
+    _questMarkers.clear();
+    
+    // Add quest markers
+    for (final quest in _availableQuests) {
+      if (quest.location != null) {
+        _questMarkers.add(
+          Marker(
+            markerId: MarkerId(quest.id),
+            position: LatLng(quest.location!.latitude, quest.location!.longitude),
+            icon: _getQuestMarkerIcon(quest.type),
+            infoWindow: InfoWindow(
+              title: quest.title,
+              snippet: quest.description,
+            ),
+            onTap: () => _onQuestMarkerTapped(quest),
+          ),
+        );
+      }
+    }
+    
+    setState(() {});
+  }
+
+  BitmapDescriptor _getQuestMarkerIcon(QuestType type) {
+    switch (type) {
+      case QuestType.battle:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+      case QuestType.location:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+      case QuestType.treasure:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow);
+      case QuestType.fitness:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+      case QuestType.social:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan);
+      case QuestType.story:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
+      case QuestType.daily:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      case QuestType.weekly:
+        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueMagenta);
+    }
+  }
+
+  void _updatePlayerMarker() {
+    _playerMarkers.clear();
+    _playerMarkers.add(
+      Marker(
+        markerId: const MarkerId('player'),
+        position: _currentPosition,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: const InfoWindow(
+          title: 'You',
+          snippet: 'Current location',
+        ),
+      ),
+    );
+    setState(() {});
+  }
+
+  void _onQuestMarkerTapped(Quest quest) {
+    _logDebug('Opening quest details: ${quest.title}');
+    setState(() {
+      _selectedQuest = quest;
+      _showQuestDetails = true;
+    });
+    _overlayAnimationController.forward();
+  }
+
+  void _onQuestHover(Quest quest) {
+    setState(() {
+      _hoveredQuest = quest;
+    });
+    _questHoverController.forward();
+  }
+
+  void _onQuestHoverExit() {
+    setState(() {
+      _hoveredQuest = null;
+    });
+    _questHoverController.reverse();
+  }
+
+  void _startQuest(Quest quest) {
+    _logDebug('Starting quest: ${quest.title}');
+    
+    // Add to active quests for tracking
+    final activeQuest = Quest(
+      id: quest.id,
+      title: quest.title,
+      type: quest.type,
+      category: quest.category,
+      status: QuestStatus.inProgress,
+      description: quest.description,
+      objectives: quest.objectives,
+      rewards: quest.rewards,
+      location: quest.location,
+      timeLimit: quest.timeLimit,
+      prerequisites: quest.prerequisites,
+      tags: quest.tags,
+      createdAt: DateTime.now(),
+    );
+    
+    _addActiveQuest(activeQuest);
+    
+    if (quest.location != null) {
+      // Calculate distance to quest
       final distance = Geolocator.distanceBetween(
         _currentPosition.latitude,
         _currentPosition.longitude,
@@ -1620,418 +1010,1235 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         quest.location!.longitude,
       );
       
-      if (distance <= quest.location!.radius) {
-        _logDebug('Player is within range of quest: ${quest.title}');
-        // Quest is available for interaction
+      if (distance <= 50) { // Within 50 meters
+        // Start the quest
+        if (quest.type == QuestType.battle) {
+          _startCombatQuest(quest);
+        } else {
+          _startExplorationQuest(quest);
+        }
+      } else {
+        // Show navigation
+        _showNavigationToQuest(quest);
       }
     }
   }
 
-  Future<void> _loadPOIsAroundCurrentLocation() async {
-    if (_isLoadingPOIs) return;
-    
-    _logDebug('Loading POIs around current location');
-    setState(() {
-      _isLoadingPOIs = true;
-    });
-    
-    try {
-      final pois = await POIService.getNearbyPOIs(
-        latitude: _currentPosition.latitude,
-        longitude: _currentPosition.longitude,
-        radius: 1000, // 1km radius
-      );
-      
-      _logDebug('Loaded ${pois.length} POIs');
-      
-      setState(() {
-        _realPOIs.clear();
-        _realPOIs.addAll(pois);
-        _isLoadingPOIs = false;
-      });
-      
-      _generatePOIQuests();
-    } catch (e) {
-      _logDebug('Error loading POIs: $e');
-      setState(() {
-        _isLoadingPOIs = false;
-      });
-    }
+  void _startCombatQuest(Quest quest) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => BattleScreen(
+          enemyId: quest.id,
+          enemyName: quest.title,
+          enemyLevel: 1,
+          enemyHp: 100,
+          enemyAtk: 10,
+          enemyDef: 5,
+        ),
+      ),
+    );
   }
 
-  void _generatePOIQuests() {
-    _logDebug('Generating POI quests');
-    
-    final poiQuests = <Quest>[];
-    
-    for (final poi in _realPOIs.take(10)) { // Limit to first 10 POIs
-      final quest = QuestGeneratorService.generatePOIQuest(
-        poiName: poi.name,
-        poiCategory: poi.category,
-        location: LatLng(poi.latitude, poi.longitude),
-      );
-      poiQuests.add(quest);
-    }
-    
-    setState(() {
-      _poiQuests.clear();
-      _poiQuests.addAll(poiQuests);
-    });
-    
-    _updateQuestMarkers();
+  void _startExplorationQuest(Quest quest) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => QuestDetailScreen(quest: quest),
+      ),
+    );
   }
 
-  Future<void> _loadTrailSegments() async {
-    if (_isLoadingTrails) return;
-    
-    _logDebug('Loading trail segments');
-    setState(() {
-      _isLoadingTrails = true;
-    });
-    
-    try {
-      final trails = await TrailService.getAllTrails();
+  void _showNavigationToQuest(Quest quest) {
+    if (quest.location != null) {
+      _logDebug('Getting route to ${quest.title}');
       
-      _logDebug('Loaded ${trails.length} trail segments');
-      
+      // Mock navigation for now
       setState(() {
-        _isLoadingTrails = false;
-      });
-      
-      _updateQuestMarkers();
-    } catch (e) {
-      _logDebug('Error loading trails: $e');
-      setState(() {
-        _isLoadingTrails = false;
-      });
-    }
-  }
-
-  Future<void> _loadAdventureQuests() async {
-    _logDebug('Loading adventure quests');
-    
-    try {
-      final weatherQuests = await AdventureApiService.getWeatherQuests(
-        location: _currentPosition,
-      );
-      
-      final heritageQuests = await AdventureApiService.getHeritageQuests(
-        location: _currentPosition,
-      );
-      
-      final seasonalQuests = await AdventureApiService.getSeasonalQuests(
-        location: _currentPosition,
-      );
-      
-      // Convert adventure quests to regular quests
-      final allAdventureQuests = <Quest>[];
-      
-      for (final adventureQuest in [...weatherQuests, ...heritageQuests, ...seasonalQuests]) {
-        final quest = Quest(
-          id: 'adventure_quest_${adventureQuest.id}',
-          title: adventureQuest.name,
-          type: QuestType.location,
-          category: QuestCategory.adventure,
-          status: QuestStatus.notStarted,
-          description: adventureQuest.description,
-          objectives: [
-            QuestObjective(
-              id: 'complete_adventure',
-              description: 'Complete the adventure',
-              target: 1,
-              progress: 0,
-              type: 'adventure',
-            ),
+        _currentRoute = RouteInfo(
+          distance: '500 m',
+          duration: '6 min',
+          polylinePoints: [
+            _currentPosition,
+            LatLng(quest.location!.latitude, quest.location!.longitude),
           ],
-          rewards: QuestRewards(
-            xp: adventureQuest.rewards.xp,
-            gold: adventureQuest.rewards.gold,
-            gems: adventureQuest.rewards.gems,
-            items: adventureQuest.rewards.items,
-          ),
-          location: QuestLocation(
-            latitude: adventureQuest.location.latitude,
-            longitude: adventureQuest.location.longitude,
-            radius: 100.0,
-          ),
-          tags: [
-            'adventure_type:${adventureQuest.type.name}',
-            'quest_type:adventure',
+          mode: 'walking',
+          instructions: [
+            'Head towards ${quest.title}',
+            'Continue straight',
+            'Arrive at destination',
           ],
         );
-        allAdventureQuests.add(quest);
-      }
-      
-      setState(() {
-        _storylineQuests.clear();
-        _storylineQuests.addAll(allAdventureQuests);
       });
-      
-      _updateQuestMarkers();
-    } catch (e) {
-      _logDebug('Error loading adventure quests: $e');
+      _updateNavigationRoute();
     }
+  }
+
+  void _updateNavigationRoute() {
+    if (_currentRoute == null) return;
+    
+    _navigationRoutes.clear();
+    _navigationRoutes.add(
+      Polyline(
+        polylineId: const PolylineId('navigation'),
+        points: _currentRoute!.polylinePoints,
+        color: Colors.blue,
+        width: 5,
+      ),
+    );
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _locationSubscription?.cancel();
+    _weatherUpdateTimer?.cancel();
+    _questProgressTimer?.cancel();
+    _overlayAnimationController.dispose();
+    _questHoverController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Realm of Valor Map'),
-        backgroundColor: Colors.brown[800],
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location),
-            onPressed: _getCurrentLocation,
-            tooltip: 'Go to my location',
-          ),
-          IconButton(
-            icon: const Icon(Icons.list),
-            onPressed: _showQuestPanel,
-            tooltip: 'View nearby quests',
-          ),
-        ],
-      ),
       body: Stack(
         children: [
-                     GoogleMap(
-             onMapCreated: (GoogleMapController controller) {
-               _mapController = controller;
-               _logDebug('Map created');
-               
-               // Apply epic fantasy map style
-               if (_epicMapData != null) {
-                 controller.setMapStyle(_epicMapData!.mapStyle);
-               } else {
-                 // Use default map style for now
-                 controller.setMapStyle(null);
-               }
-               
-               if (_locationPermissionGranted) {
-                 _getCurrentLocation();
-               }
-             },
-             initialCameraPosition: _epicMapData?.initialCamera ?? CameraPosition(
-               target: _currentPosition,
-               zoom: 15.0,
-             ),
-             myLocationEnabled: true,
-             myLocationButtonEnabled: false,
-             zoomControlsEnabled: false,
-             mapToolbarEnabled: false,
-             markers: {
-               ..._enemyMarkers,
-               ..._itemMarkers,
-               ..._poiMarkers,
-               ..._trailMarkers,
-               ..._storylineMarkers,
-               ..._playerMarkers,
-               ...(_epicMapData?.markers ?? {}),
-             },
-             circles: _geofences,
-             polylines: {
-               ..._navigationRoutes,
-               ..._trailRoutes,
-               ...(_epicMapData?.polylines ?? {}),
-             },
-             polygons: _epicMapData?.polygons ?? {},
-             onTap: (LatLng position) {
-               // No popups - just log the tap
-               _logDebug('Map tapped at: ${position.latitude}, ${position.longitude}');
-             },
-           ),
-          // Debug panel (only in debug mode)
-          if (kDebugMode)
+          // Main map
+          GoogleMap(
+            onMapCreated: (controller) {
+              _mapController = controller;
+              _logDebug('Map created');
+            },
+            initialCameraPosition: CameraPosition(
+              target: _currentPosition,
+              zoom: 15.0,
+            ),
+            onCameraMove: (position) {
+              // Update compass rotation
+              setState(() {
+                _compassRotation = position.bearing;
+              });
+            },
+            markers: {
+              ..._questMarkers,
+              ..._playerMarkers,
+            },
+            circles: _geofences,
+            polylines: _navigationRoutes,
+            myLocationEnabled: _locationPermissionGranted,
+            myLocationButtonEnabled: false,
+            compassEnabled: false,
+            mapToolbarEnabled: false,
+            zoomControlsEnabled: false,
+            mapType: MapType.normal,
+          ),
+          
+          // Quest hover overlay
+          if (_hoveredQuest != null)
             Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                width: 200,
-                height: 150,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.7),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _debugLog.take(10).map((log) => Text(
-                      log,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
+              left: 20,
+              top: 100,
+              child: AnimatedBuilder(
+                animation: _questHoverAnimation,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _questHoverAnimation.value,
+                    child: _buildQuestHoverCard(_hoveredQuest!),
+                  );
+                },
+              ),
+            ),
+          
+          // Quest details overlay
+          if (_showQuestDetails && _selectedQuest != null)
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: () {
+                  // Close overlay when tapping outside
+                  _overlayAnimationController.reverse().then((_) {
+                    setState(() {
+                      _showQuestDetails = false;
+                      _selectedQuest = null;
+                    });
+                  });
+                },
+                child: Container(
+                  color: Colors.black.withOpacity(0.3),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: GestureDetector(
+                          onTap: () {}, // Prevent taps from going through to map
+                          onPanUpdate: (details) {
+                            // Allow swipe down to close
+                            if (details.delta.dy > 10) {
+                              _overlayAnimationController.reverse().then((_) {
+                                setState(() {
+                                  _showQuestDetails = false;
+                                  _selectedQuest = null;
+                                });
+                              });
+                            }
+                          },
+                          child: AnimatedBuilder(
+                            animation: _overlaySlideAnimation,
+                            builder: (context, child) {
+                              return Transform.translate(
+                                offset: Offset(0, MediaQuery.of(context).size.height * _overlaySlideAnimation.value),
+                                child: _buildQuestDetailsOverlay(_selectedQuest!),
+                              );
+                            },
+                          ),
+                        ),
                       ),
-                    )).toList(),
+                    ],
                   ),
                 ),
               ),
+            ),
+          
+          // Active Quest Overlay
+          if (_activeQuests.isNotEmpty)
+            Positioned(
+              top: 120,
+              left: 16,
+              child: _buildActiveQuestOverlay(),
+            ),
+          
+          // GPS Spoofer (for testing)
+          if (_showGpsSpoofer)
+            Positioned(
+              bottom: 100,
+              left: 16,
+              child: _buildGpsSpoofer(),
+            ),
+          
+          // Top UI bar
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _buildTopUI(),
+          ),
+          
+          // Bottom navigation removed - handled by main app navigation
+          
+          // Compass
+          if (_showCompass)
+            Positioned(
+              top: 120,
+              right: 20,
+              child: _buildCompass(),
             ),
           
           // Mini-map
           if (_showMiniMap)
             Positioned(
-              top: 100,
-              right: 10,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 5,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: GoogleMap(
-                    initialCameraPosition: CameraPosition(
-                      target: _currentPosition,
-                      zoom: 12,
-                    ),
-                    markers: {
-                      ..._enemyMarkers,
-                      ..._itemMarkers,
-                      ..._poiMarkers,
-                      ..._trailMarkers,
-                      ..._storylineMarkers,
-                      ..._clusterMarkers,
-                    },
-                    polylines: _navigationRoutes,
-                    zoomControlsEnabled: false,
-                    mapToolbarEnabled: false,
-                    myLocationEnabled: false,
-                    myLocationButtonEnabled: false,
-                    compassEnabled: false,
-                    onTap: (position) {
-                      // Zoom main map to tapped location
-                      _mapController?.animateCamera(
-                        CameraUpdate.newLatLng(position),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          
-          // Compass
-          if (_showCompass)
-            Positioned(
-              top: 230,
-              right: 10,
-              child: GestureDetector(
-                onTap: () {
-                  _mapController?.animateCamera(
-                    CameraUpdate.newCameraPosition(
-                      CameraPosition(
-                        target: _currentPosition,
-                        zoom: 15,
-                        bearing: 0,
-                        tilt: 0,
-                      ),
-                    ),
-                  );
-                },
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.grey),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 5,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Transform.rotate(
-                    angle: _compassRotation * 3.14159 / 180,
-                    child: const Icon(
-                      Icons.navigation,
-                      color: Colors.red,
-                      size: 30,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          
-          // Weather display
-          if (_currentWeather != null)
-            Positioned(
-              top: 290,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      _currentWeather!.condition,
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      '${_currentWeather!.temperature.round()}°C',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
+              top: 200,
+              right: 20,
+              child: _buildMiniMap(),
             ),
         ],
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+    );
+  }
+
+  Widget _buildTopUI() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 50, 16, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.black.withOpacity(0.8),
+            Colors.black.withOpacity(0.4),
+            Colors.transparent,
+          ],
+        ),
+      ),
+      child: Row(
         children: [
-          FloatingActionButton(
-            heroTag: 'location',
-            onPressed: _getCurrentLocation,
-            backgroundColor: Colors.blue,
-            child: const Icon(Icons.my_location, color: Colors.white),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: 'tracking',
-            onPressed: _toggleLocationTracking,
-            backgroundColor: _isTracking ? Colors.red : Colors.green,
-            child: Icon(
-              _isTracking ? Icons.stop : Icons.play_arrow,
-              color: Colors.white,
+          // Back button
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(25),
+            ),
+            child: IconButton(
+              onPressed: () {
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  // If we can't pop, navigate to home
+                  context.go('/');
+                }
+              },
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
             ),
           ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: 'quests',
-            onPressed: _showQuestPanel,
-            backgroundColor: Colors.orange,
-            child: const Icon(Icons.list, color: Colors.white),
+          
+          const SizedBox(width: 16),
+          
+          // Title
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Realm of Valor',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  'Adventure Map',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
           ),
-          if (_selectedQuestId != null) ...[
+          
+          // Weather indicator
+          if (_currentWeather != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _getWeatherIcon(_currentWeather!.condition),
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${_currentWeather!.temperature.round()}°',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          
+          // GPS Spoofer Toggle
+          Container(
+            margin: const EdgeInsets.only(left: 8),
+            child: GestureDetector(
+              onTap: () => setState(() => _showGpsSpoofer = !_showGpsSpoofer),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _showGpsSpoofer ? Colors.orange.withOpacity(0.8) : Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.gps_fixed,
+                      color: _showGpsSpoofer ? Colors.white : Colors.grey,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'GPS',
+                      style: TextStyle(
+                        color: _showGpsSpoofer ? Colors.white : Colors.grey,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+  Widget _buildCompass() {
+    return GestureDetector(
+      onTap: () {
+        // Center map on current location
+        _moveCameraToCurrentLocation();
+        _updateCompassRotation();
+      },
+      onLongPress: () {
+        // Toggle compass visibility
+        setState(() {
+          _showCompass = !_showCompass;
+        });
+      },
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.7),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: Colors.white.withOpacity(0.3)),
+        ),
+        child: Transform.rotate(
+          angle: -_compassRotation * (3.14159 / 180),
+          child: const Icon(
+            Icons.navigation,
+            color: Colors.white,
+            size: 30,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniMap() {
+    return GestureDetector(
+      onTap: () {
+        // Show quest summary
+        _showQuestSummary();
+      },
+      onLongPress: () {
+        // Toggle mini-map visibility
+        setState(() {
+          _showMiniMap = !_showMiniMap;
+        });
+      },
+      child: Container(
+        width: 120,
+        height: 120,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.7),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.3)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            children: [
+              // Mini map background
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[800],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
+                    children: [
+                      // Map background pattern
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[700],
+                          image: const DecorationImage(
+                            image: NetworkImage('https://maps.googleapis.com/maps/api/staticmap?center=52.199424,-0.884736&zoom=13&size=120x120&maptype=roadmap&key=AIzaSyCgAWPowBy2-0_KszZVUtu6aOScvUzqVU0'),
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      // Fallback if image fails
+                      Container(
+                        color: Colors.grey[800],
+                        child: const Center(
+                          child: Icon(
+                            Icons.map,
+                            color: Colors.white54,
+                            size: 40,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // Player position indicator (always centered)
+              Positioned(
+                left: 56, // Center of 120px container
+                top: 56,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blue.withOpacity(0.5),
+                        blurRadius: 4,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // Quest markers around player
+              ..._questMarkers.take(5).map((marker) {
+                final quest = _availableQuests.firstWhere(
+                  (q) => q.id == marker.markerId.value,
+                  orElse: () => _availableQuests.first,
+                );
+                
+                // Calculate relative position from player
+                final latDiff = marker.position.latitude - _currentPosition.latitude;
+                final lngDiff = marker.position.longitude - _currentPosition.longitude;
+                
+                // Convert to mini-map coordinates (simplified)
+                final x = 56 + (lngDiff * 10000).clamp(-40.0, 40.0);
+                final y = 56 + (latDiff * 10000).clamp(-40.0, 40.0);
+                
+                return Positioned(
+                  left: x,
+                  top: y,
+                  child: Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: _getQuestTypeColor(quest.type),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 0.5),
+                    ),
+                  ),
+                );
+              }),
+              // Quest count indicator
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${_questMarkers.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuestHoverCard(Quest quest) {
+    double distance = 0;
+    if (quest.location != null) {
+      distance = Geolocator.distanceBetween(
+        _currentPosition.latitude,
+        _currentPosition.longitude,
+        quest.location!.latitude,
+        quest.location!.longitude,
+      );
+    }
+    
+    return Container(
+      width: 250,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _getQuestTypeColor(quest.type)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.5),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _getQuestTypeIcon(quest.type),
+                color: _getQuestTypeColor(quest.type),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  quest.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _getQuestTypeColor(quest.type),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  quest.type.name.toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            quest.description,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '${distance.round()}m away',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.6),
+                  fontSize: 10,
+                ),
+              ),
+              Text(
+                'Reward: ${quest.rewards.xp} XP',
+                style: const TextStyle(
+                  color: Colors.green,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuestDetailsOverlay(Quest quest) {
+    double distance = 0;
+    if (quest.location != null) {
+      distance = Geolocator.distanceBetween(
+        _currentPosition.latitude,
+        _currentPosition.longitude,
+        quest.location!.latitude,
+        quest.location!.longitude,
+      );
+    }
+    
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 400),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.95),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        border: Border.all(color: _getQuestTypeColor(quest.type)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle bar
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          
+          // Quest header
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _getQuestTypeColor(quest.type).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    _getQuestTypeIcon(quest.type),
+                    color: _getQuestTypeColor(quest.type),
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        quest.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        quest.type.name.toUpperCase(),
+                        style: TextStyle(
+                          color: _getQuestTypeColor(quest.type),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _getQuestTypeColor(quest.type),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    quest.category.name.toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Quest details
+          Flexible(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Description',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Flexible(
+                    child: Text(
+                      quest.description,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 14,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 3,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Quest info
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildQuestInfoCard(
+                          'Distance',
+                          '${distance.round()}m',
+                          Icons.location_on,
+                          Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildQuestInfoCard(
+                          'Reward',
+                          '${quest.rewards.xp} XP',
+                          Icons.star,
+                          Colors.amber,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildQuestInfoCard(
+                          'Type',
+                          quest.type.name.toUpperCase(),
+                          Icons.category,
+                          _getQuestTypeColor(quest.type),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          // Action buttons
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      _overlayAnimationController.reverse().then((_) {
+                        setState(() {
+                          _showQuestDetails = false;
+                          _selectedQuest = null;
+                        });
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[800],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      _overlayAnimationController.reverse().then((_) {
+                        setState(() {
+                          _showQuestDetails = false;
+                          _selectedQuest = null;
+                        });
+                        _startQuest(quest);
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _getQuestTypeColor(quest.type),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text(distance <= 50 ? 'Start Quest' : 'Navigate'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuestInfoCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: 10,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveQuestOverlay() {
+    return Container(
+      width: 300,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.6,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blue.withOpacity(0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.5),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.2),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.assignment, color: Colors.blue, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Active Quests',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${_activeQuests.length}',
+                  style: const TextStyle(
+                    color: Colors.blue,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Quest list
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _activeQuests.length,
+              itemBuilder: (context, index) {
+                final quest = _activeQuests[index];
+                return _buildActiveQuestItem(quest);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveQuestItem(Quest quest) {
+    final isCompleted = quest.status == QuestStatus.completed;
+    
+    return Container(
+      margin: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isCompleted ? Colors.green.withOpacity(0.1) : Colors.grey[900],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isCompleted 
+              ? Colors.green.withOpacity(0.5) 
+              : _getQuestTypeColor(quest.type).withOpacity(0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Quest header
+          Row(
+            children: [
+              Icon(
+                isCompleted ? Icons.check_circle : _getQuestTypeIcon(quest.type),
+                color: isCompleted ? Colors.green : _getQuestTypeColor(quest.type),
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  quest.title,
+                  style: TextStyle(
+                    color: isCompleted ? Colors.green : Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (isCompleted)
+                GestureDetector(
+                  onTap: () => _removeCompletedQuest(quest.id),
+                  child: const Icon(
+                    Icons.close,
+                    color: Colors.grey,
+                    size: 16,
+                  ),
+                ),
+            ],
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // Objectives
+          ...quest.objectives.map((objective) => _buildObjectiveProgress(objective)),
+          
+          const SizedBox(height: 8),
+          
+          // Rewards preview
+          Row(
+            children: [
+              const Icon(Icons.star, color: Colors.amber, size: 14),
+              const SizedBox(width: 4),
+              Text(
+                '${quest.rewards.xp} XP',
+                style: const TextStyle(
+                  color: Colors.amber,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (quest.rewards.gold > 0) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.monetization_on, color: Colors.yellow, size: 14),
+                const SizedBox(width: 4),
+                Text(
+                  '${quest.rewards.gold} Gold',
+                  style: const TextStyle(
+                    color: Colors.yellow,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+              if (quest.rewards.skillPoints > 0) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.psychology, color: Colors.purple, size: 14),
+                const SizedBox(width: 4),
+                Text(
+                  '${quest.rewards.skillPoints} SP',
+                  style: const TextStyle(
+                    color: Colors.purple,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          
+          if (isCompleted) ...[
             const SizedBox(height: 8),
-            FloatingActionButton(
-              heroTag: 'navigate',
-              onPressed: _navigateToSelectedQuest,
-              backgroundColor: Colors.purple,
-              child: const Icon(Icons.navigation, color: Colors.white),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'COMPLETED!',
+                style: TextStyle(
+                  color: Colors.green,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         ],
       ),
     );
   }
+
+  Widget _buildObjectiveProgress(QuestObjective objective) {
+    final progress = objective.progress.clamp(0, objective.target);
+    final percentage = objective.target > 0 ? progress / objective.target : 0.0;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  objective.description,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '$progress/${objective.target}',
+                style: TextStyle(
+                  color: percentage >= 1.0 ? Colors.green : Colors.white.withOpacity(0.6),
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          LinearProgressIndicator(
+            value: percentage,
+            backgroundColor: Colors.grey[700],
+            valueColor: AlwaysStoppedAnimation<Color>(
+              percentage >= 1.0 ? Colors.green : _getQuestTypeColor(QuestType.fitness),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getQuestTypeColor(QuestType type) {
+    switch (type) {
+      case QuestType.battle:
+        return Colors.red;
+      case QuestType.location:
+        return Colors.blue;
+      case QuestType.treasure:
+        return Colors.amber;
+      case QuestType.fitness:
+        return Colors.green;
+      case QuestType.social:
+        return Colors.cyan;
+      case QuestType.story:
+        return Colors.purple;
+      case QuestType.daily:
+        return Colors.orange;
+      case QuestType.weekly:
+        return Colors.pink;
+    }
+  }
+
+  IconData _getQuestTypeIcon(QuestType type) {
+    switch (type) {
+      case QuestType.battle:
+        return Icons.gps_fixed;
+      case QuestType.location:
+        return Icons.location_on;
+      case QuestType.treasure:
+        return Icons.inventory;
+      case QuestType.fitness:
+        return Icons.fitness_center;
+      case QuestType.social:
+        return Icons.people;
+      case QuestType.story:
+        return Icons.book;
+      case QuestType.daily:
+        return Icons.today;
+      case QuestType.weekly:
+        return Icons.calendar_view_week;
+    }
+  }
+
+  IconData _getWeatherIcon(String condition) {
+    switch (condition.toLowerCase()) {
+      case 'sunny':
+      case 'clear':
+        return Icons.wb_sunny;
+      case 'cloudy':
+      case 'partly cloudy':
+        return Icons.cloud;
+      case 'rainy':
+      case 'rain':
+        return Icons.umbrella;
+      case 'snowy':
+      case 'snow':
+        return Icons.ac_unit;
+      case 'stormy':
+      case 'thunderstorm':
+        return Icons.thunderstorm;
+      default:
+        return Icons.cloud;
+    }
+  }
 }
+
+// Mock classes for compatibility
+class POI {
+  final String id;
+  final String name;
+  final String type;
+  final double latitude;
+  final double longitude;
+  final double rating;
+
+  POI({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.latitude,
+    required this.longitude,
+    required this.rating,
+  });
+}
+
+class EpicMapData {
+  // Mock epic map data
+}
+
+class EpicMapLoader {
+  Future<EpicMapData> loadEpicMap() async {
+    await Future.delayed(const Duration(seconds: 1));
+    return EpicMapData();
+  }
+}
+
+class WeatherData {
+  final double temperature;
+  final String condition;
+  final double humidity;
+  final double pressure;
+  final double windSpeed;
+  final String icon;
+
+  WeatherData({
+    required this.temperature,
+    required this.condition,
+    required this.humidity,
+    required this.pressure,
+    required this.windSpeed,
+    required this.icon,
+  });
+}
+
+final Random _random = Random();
+
 

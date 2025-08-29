@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 import '../../core/di.dart';
 import '../../data/models/inventory_model.dart';
 import '../../data/models/card_model.dart';
@@ -24,6 +25,32 @@ final inventoryStreamProvider = StreamProvider<Inventory?>((ref) async* {
   await for (final event in eventBus.stream) {
     if (event.type == 'inventory_updated' && event.data?['inventory'] != null) {
       yield Inventory.fromJson(event.data!['inventory'] as Map<String, dynamic>);
+    } else if (event.type == 'card.obtain') {
+      // Handle card obtain events
+      final cardId = event.data?['cardId'] as String?;
+      if (cardId != null) {
+        debugPrint('InventoryAgent: Adding card $cardId to inventory');
+        final currentInventory = _createDefaultInventory(authState.value!.uid);
+        final newCardInstance = CardInstance(
+          instanceId: 'card_${DateTime.now().millisecondsSinceEpoch}',
+          cardId: cardId,
+          durability: 100,
+        );
+        
+        final updatedItems = List<CardInstance>.from(currentInventory.items);
+        updatedItems.add(newCardInstance);
+        
+        debugPrint('InventoryAgent: Inventory now has ${updatedItems.length} items');
+        
+        final updatedInventory = Inventory(
+          ownerUid: currentInventory.ownerUid,
+          items: updatedItems,
+          gold: currentInventory.gold,
+        );
+        
+        yield updatedInventory;
+        debugPrint('InventoryAgent: Yielded updated inventory');
+      }
     }
   }
 });

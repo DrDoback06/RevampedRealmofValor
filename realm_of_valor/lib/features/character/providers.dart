@@ -22,6 +22,38 @@ final characterStreamProvider = StreamProvider<Character?>((ref) async* {
   await for (final event in eventBus.stream) {
     if (event.type == 'character_updated' && event.data?['character'] != null) {
       yield Character.fromJson(event.data!['character'] as Map<String, dynamic>);
+    } else if (event.type == 'character.add_xp') {
+      // Handle XP addition
+      final currentCharacter = _createDefaultCharacter(authState.value!.uid);
+      final xpToAdd = event.data?['xp'] as int? ?? 0;
+      final updatedCharacter = Character(
+        uid: currentCharacter.uid,
+        id: currentCharacter.id,
+        name: currentCharacter.name,
+        level: currentCharacter.level,
+        xp: currentCharacter.xp + xpToAdd,
+        stats: currentCharacter.stats,
+        equipment: currentCharacter.equipment,
+        skillPoints: currentCharacter.skillPoints,
+        unlockedSkills: currentCharacter.unlockedSkills,
+      );
+      yield updatedCharacter;
+    } else if (event.type == 'character.add_skill_points') {
+      // Handle skill points addition
+      final currentCharacter = _createDefaultCharacter(authState.value!.uid);
+      final skillPointsToAdd = event.data?['skillPoints'] as int? ?? 0;
+      final updatedCharacter = Character(
+        uid: currentCharacter.uid,
+        id: currentCharacter.id,
+        name: currentCharacter.name,
+        level: currentCharacter.level,
+        xp: currentCharacter.xp,
+        stats: currentCharacter.stats,
+        equipment: currentCharacter.equipment,
+        skillPoints: currentCharacter.skillPoints + skillPointsToAdd,
+        unlockedSkills: currentCharacter.unlockedSkills,
+      );
+      yield updatedCharacter;
     }
   }
 });

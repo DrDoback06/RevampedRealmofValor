@@ -29,10 +29,6 @@ class HomeShell extends StatelessWidget {
             label: 'Map',
           ),
           NavigationDestination(
-            icon: Icon(Icons.assignment),
-            label: 'Quests',
-          ),
-          NavigationDestination(
             icon: Icon(Icons.person),
             label: 'Character',
           ),
@@ -41,16 +37,12 @@ class HomeShell extends StatelessWidget {
             label: 'Scanner',
           ),
           NavigationDestination(
-            icon: Icon(Icons.calculate),
-            label: 'Battle',
+            icon: Icon(Icons.collections),
+            label: 'Cards',
           ),
           NavigationDestination(
             icon: Icon(Icons.group),
             label: 'Social',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.collections),
-            label: 'Cards',
           ),
           NavigationDestination(
             icon: Icon(Icons.emoji_events),
@@ -78,33 +70,27 @@ class HomeShell extends StatelessWidget {
               context.go('/map');
               break;
             case 2:
-              context.go('/quests');
-              break;
-            case 3:
               context.go('/character');
               break;
-            case 4:
+            case 3:
               context.go('/scan');
               break;
-            case 5:
-              context.go('/battle-companion');
-              break;
-            case 6:
-              context.go('/social');
-              break;
-            case 7:
+            case 4:
               context.go('/card-collection');
               break;
-            case 8:
+            case 5:
+              context.go('/social');
+              break;
+            case 6:
               context.go('/achievements');
               break;
-            case 9:
+            case 7:
               context.go('/weather');
               break;
-            case 10:
+            case 8:
               context.go('/events');
               break;
-            case 11:
+            case 9:
               context.go('/notifications');
               break;
           }
@@ -122,26 +108,22 @@ class HomeShell extends StatelessWidget {
         return 0;
       case '/map':
         return 1;
-      case '/quests':
-        return 2;
       case '/character':
-        return 3;
+        return 2;
       case '/scan':
-        return 4;
-      case '/battle-companion':
-        return 5;
-      case '/social':
-        return 6;
+        return 3;
       case '/card-collection':
-        return 7;
+        return 4;
+      case '/social':
+        return 5;
       case '/achievements':
-        return 8;
+        return 6;
       case '/weather':
-        return 9;
+        return 7;
       case '/events':
-        return 10;
+        return 8;
       case '/notifications':
-        return 11;
+        return 9;
       default:
         return 0;
     }

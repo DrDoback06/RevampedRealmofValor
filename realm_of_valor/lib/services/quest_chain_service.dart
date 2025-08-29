@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../data/models/quest_model.dart';
 
 class QuestChainService {
@@ -355,7 +356,7 @@ class QuestChainService {
 
   ConnectionType _determineConnectionType(int questIndex, int totalQuests) {
     if (questIndex == totalQuests - 2) {
-      return ConnectionType.final; // Connection to final quest
+      return ConnectionType.finalQuest; // Connection to final quest
     } else if (questIndex == 0) {
       return ConnectionType.start; // First connection
     } else {
@@ -488,6 +489,6 @@ class QuestConnection {
 enum ConnectionType {
   start,
   standard,
-  final,
+  finalQuest,
   branch,
 }

@@ -169,9 +169,9 @@ class _AnimatedMarkerWidgetState extends State<AnimatedMarkerWidget>
   IconData _getQuestIcon() {
     switch (widget.quest.type) {
       case QuestType.battle:
-        return Icons.sword;
+        return Icons.gps_fixed;
       case QuestType.treasure:
-        return Icons.chest;
+        return Icons.inventory;
       case QuestType.location:
         return Icons.explore;
       case QuestType.story:

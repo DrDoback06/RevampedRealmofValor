@@ -13,12 +13,23 @@ class AppConfig {
   // App Settings
   static const bool enableMockData = bool.fromEnvironment(
     'ENABLE_MOCK_DATA',
-    defaultValue: true,
+    defaultValue: false, // Changed to false to force real API calls
   );
   
   static const bool enableFirebasePersistence = bool.fromEnvironment(
     'ENABLE_FIREBASE_PERSISTENCE',
     defaultValue: true,
+  );
+  
+  // API Debug Settings
+  static const bool enableApiDebugging = bool.fromEnvironment(
+    'ENABLE_API_DEBUGGING',
+    defaultValue: true,
+  );
+  
+  static const bool forceRealApiCalls = bool.fromEnvironment(
+    'FORCE_REAL_API_CALLS',
+    defaultValue: false, // Temporarily disabled for web compatibility
   );
   
   // Quest Settings

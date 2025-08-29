@@ -7,46 +7,29 @@ part of 'weather_model.dart';
 // **************************************************************************
 
 WeatherData _$WeatherDataFromJson(Map<String, dynamic> json) => WeatherData(
+      condition: json['condition'] as String,
       temperature: (json['temperature'] as num).toDouble(),
       humidity: (json['humidity'] as num).toDouble(),
       windSpeed: (json['windSpeed'] as num).toDouble(),
-      condition: $enumDecode(_$WeatherConditionEnumMap, json['condition']),
-      severity: $enumDecode(_$WeatherSeverityEnumMap, json['severity']),
-      location: json['location'] as String,
+      windDirection: json['windDirection'] as String,
+      pressure: (json['pressure'] as num).toDouble(),
+      visibility: (json['visibility'] as num).toDouble(),
       timestamp: DateTime.parse(json['timestamp'] as String),
-      additionalData: json['additionalData'] as Map<String, dynamic>?,
+      icon: json['icon'] as String,
     );
 
 Map<String, dynamic> _$WeatherDataToJson(WeatherData instance) =>
     <String, dynamic>{
+      'condition': instance.condition,
       'temperature': instance.temperature,
       'humidity': instance.humidity,
       'windSpeed': instance.windSpeed,
-      'condition': _$WeatherConditionEnumMap[instance.condition]!,
-      'severity': _$WeatherSeverityEnumMap[instance.severity]!,
-      'location': instance.location,
+      'windDirection': instance.windDirection,
+      'pressure': instance.pressure,
+      'visibility': instance.visibility,
       'timestamp': instance.timestamp.toIso8601String(),
-      'additionalData': instance.additionalData,
+      'icon': instance.icon,
     };
-
-const _$WeatherConditionEnumMap = {
-  WeatherCondition.clear: 'clear',
-  WeatherCondition.cloudy: 'cloudy',
-  WeatherCondition.rain: 'rain',
-  WeatherCondition.snow: 'snow',
-  WeatherCondition.storm: 'storm',
-  WeatherCondition.fog: 'fog',
-  WeatherCondition.wind: 'wind',
-  WeatherCondition.heat: 'heat',
-  WeatherCondition.cold: 'cold',
-};
-
-const _$WeatherSeverityEnumMap = {
-  WeatherSeverity.mild: 'mild',
-  WeatherSeverity.moderate: 'moderate',
-  WeatherSeverity.severe: 'severe',
-  WeatherSeverity.extreme: 'extreme',
-};
 
 WeatherEffect _$WeatherEffectFromJson(Map<String, dynamic> json) =>
     WeatherEffect(
@@ -78,6 +61,25 @@ Map<String, dynamic> _$WeatherEffectToJson(WeatherEffect instance) =>
       'specialEffects': instance.specialEffects,
       'isPositive': instance.isPositive,
     };
+
+const _$WeatherConditionEnumMap = {
+  WeatherCondition.clear: 'clear',
+  WeatherCondition.cloudy: 'cloudy',
+  WeatherCondition.rain: 'rain',
+  WeatherCondition.snow: 'snow',
+  WeatherCondition.storm: 'storm',
+  WeatherCondition.fog: 'fog',
+  WeatherCondition.wind: 'wind',
+  WeatherCondition.heat: 'heat',
+  WeatherCondition.cold: 'cold',
+};
+
+const _$WeatherSeverityEnumMap = {
+  WeatherSeverity.mild: 'mild',
+  WeatherSeverity.moderate: 'moderate',
+  WeatherSeverity.severe: 'severe',
+  WeatherSeverity.extreme: 'extreme',
+};
 
 WeatherForecast _$WeatherForecastFromJson(Map<String, dynamic> json) =>
     WeatherForecast(

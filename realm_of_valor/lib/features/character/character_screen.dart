@@ -28,7 +28,7 @@ class CharacterScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.psychology),
-            onPressed: () => _showSkillTree(context),
+            onPressed: () => _showSkillTree(context, ref),
           ),
         ],
       ),
@@ -137,7 +137,7 @@ class CharacterScreen extends ConsumerWidget {
           const SizedBox(height: 24),
           
           // Skills Section
-          _buildSkillsSection(context, character, characterActions),
+          _buildSkillsSection(context, character, characterActions, ref),
           const SizedBox(height: 24),
           
           // Character Info
@@ -721,7 +721,7 @@ class CharacterScreen extends ConsumerWidget {
     }
   }
 
-  Widget _buildSkillsSection(BuildContext context, Character character, CharacterActions actions) {
+  Widget _buildSkillsSection(BuildContext context, Character character, CharacterActions actions, WidgetRef ref) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -782,7 +782,7 @@ class CharacterScreen extends ConsumerWidget {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: character.skillPoints > 0
-                    ? () => _showSkillTree(context)
+                    ? () => _showSkillTree(context, ref)
                     : null,
                 icon: const Icon(Icons.psychology),
                 label: const Text('Skill Tree'),
@@ -936,7 +936,7 @@ class CharacterScreen extends ConsumerWidget {
     );
   }
 
-  void _showSkillTree(BuildContext context) {
+  void _showSkillTree(BuildContext context, WidgetRef ref) {
     debugPrint('CharacterScreen: Showing skill tree');
     final characterAsync = ref.read(characterStreamProvider);
     

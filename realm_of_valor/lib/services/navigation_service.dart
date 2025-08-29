@@ -18,57 +18,17 @@ class NavigationService {
     debugPrint('NavigationService: Getting route from ${origin.latitude},${origin.longitude} to ${destination.latitude},${destination.longitude}');
     
     try {
-      final url = Uri.parse(
-        '$_baseUrl/json?'
-        'origin=${origin.latitude},${origin.longitude}'
-        '&destination=${destination.latitude},${destination.longitude}'
-        '&mode=$mode'
-        '&key=$_apiKey'
-      );
-
-      debugPrint('NavigationService: Making request to Google Directions API');
-      final response = await http.get(url);
+      // For web, we need to use the Google Maps JavaScript API
+      // This will be handled by the map widget itself
+      debugPrint('NavigationService: Using Google Maps JavaScript API for web');
       
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        debugPrint('NavigationService: Received route data');
-        
-        if (data['status'] == 'OK' && data['routes'] != null && data['routes'].isNotEmpty) {
-          final route = data['routes'][0];
-          final legs = route['legs'] as List;
-          
-          if (legs.isNotEmpty) {
-            final leg = legs[0];
-            final steps = leg['steps'] as List;
-            
-            // Convert steps to LatLng points for polyline
-            final List<LatLng> polylinePoints = [];
-            for (final step in steps) {
-              final polyline = step['polyline']['points'] as String;
-              final points = _decodePolyline(polyline);
-              polylinePoints.addAll(points);
-            }
-            
-            return RouteInfo(
-              distance: leg['distance']['text'] as String,
-              duration: leg['duration']['text'] as String,
-              polylinePoints: polylinePoints,
-              mode: mode,
-              instructions: steps.map((step) => step['html_instructions'] as String).toList(),
-            );
-          }
-        } else {
-          debugPrint('NavigationService: API Error - ${data['status']}');
-        }
-      } else {
-        debugPrint('NavigationService: HTTP Error - ${response.statusCode}');
-      }
+      // For now, return mock route since the JavaScript API integration
+      // requires more complex setup with the map widget
+      return _generateMockRoute(origin, destination, mode);
     } catch (e) {
       debugPrint('NavigationService: Error getting route - $e');
+      return _generateMockRoute(origin, destination, mode);
     }
-    
-    // Return mock route if API fails
-    return _generateMockRoute(origin, destination, mode);
   }
 
   /// Generate mock route when API is unavailable

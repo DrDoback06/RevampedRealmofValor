@@ -90,8 +90,8 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              _getWeatherGradientColor(weather.condition).withOpacity(0.1),
-              _getWeatherGradientColor(weather.condition).withOpacity(0.05),
+              _getWeatherGradientColorFromString(weather.condition).withOpacity(0.1),
+              _getWeatherGradientColorFromString(weather.condition).withOpacity(0.05),
             ],
           ),
         ),
@@ -102,7 +102,7 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
               Row(
                 children: [
                   Text(
-                    weather.conditionIcon,
+                    weather.icon,
                     style: const TextStyle(fontSize: 48),
                   ),
                   const SizedBox(width: 16),
@@ -111,14 +111,14 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          weather.location,
+                          'Current Location',
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         Text(
-                          weather.condition.name.toUpperCase(),
+                          weather.condition.toUpperCase(),
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey[600],
@@ -153,7 +153,7 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   _buildWeatherDetail('Wind', '${weather.windSpeed} m/s', Icons.air),
-                  _buildWeatherDetail('Severity', weather.severity.name, _getSeverityIcon(weather.severity)),
+                  _buildWeatherDetail('Pressure', '${weather.pressure} hPa', Icons.speed),
                   if (status.affectsGameplay)
                     _buildWeatherDetail('Gameplay', 'Affected', Icons.warning, color: Colors.orange),
                 ],
@@ -286,7 +286,7 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
                     child: Column(
                       children: [
                         Text(
-                          weather.conditionIcon,
+                          weather.icon,
                           style: const TextStyle(fontSize: 24),
                         ),
                         Text(
@@ -348,7 +348,7 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
       child: Row(
         children: [
           Text(
-            weather.conditionIcon,
+            weather.icon,
             style: const TextStyle(fontSize: 24),
           ),
           const SizedBox(width: 12),
@@ -363,7 +363,7 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
                   ),
                 ),
                 Text(
-                  weather.condition.name,
+                  weather.condition,
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
@@ -507,6 +507,31 @@ class _WeatherScreenState extends ConsumerState<WeatherScreen> {
         return Colors.orange;
       case WeatherCondition.cold:
         return Colors.blue.shade300;
+    }
+  }
+
+  Color _getWeatherGradientColorFromString(String condition) {
+    switch (condition) {
+      case 'clear':
+        return Colors.blue;
+      case 'cloudy':
+        return Colors.grey;
+      case 'rain':
+        return Colors.blue.shade700;
+      case 'snow':
+        return Colors.blue.shade100;
+      case 'storm':
+        return Colors.purple;
+      case 'fog':
+        return Colors.grey.shade400;
+      case 'wind':
+        return Colors.green;
+      case 'heat':
+        return Colors.orange;
+      case 'cold':
+        return Colors.blue.shade300;
+      default:
+        return Colors.grey;
     }
   }
 

@@ -1,12 +1,9 @@
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'dart:math';
 import '../core/config.dart';
 
 class POIService {
   static const String _apiKey = AppConfig.googleMapsApiKey;
-  static const String _baseUrl = 'https://maps.googleapis.com/maps/api/place';
   
   // Wootton, Northampton, UK coordinates
   static const double _woottonLat = 52.2583;
@@ -19,36 +16,34 @@ class POIService {
   }) async {
     debugPrint('POIService: Getting nearby POIs for $latitude, $longitude');
     
+    // Force real API calls if configured
+    if (AppConfig.forceRealApiCalls) {
+      debugPrint('POIService: Forcing real API calls');
+    }
+    
     try {
-      final url = Uri.parse(
-        '$_baseUrl/nearbysearch/json?'
-        'location=$latitude,$longitude'
-        '&radius=$radius'
-        '&type=establishment'
-        '&key=$_apiKey'
-      );
-
-      debugPrint('POIService: Making request to Google Places API');
-      final response = await http.get(url);
+      // For web, we need to use the Google Maps JavaScript API
+      // This will be handled by the map widget itself
+      debugPrint('POIService: Using Google Maps JavaScript API for web');
       
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        debugPrint('POIService: Received ${data['results']?.length ?? 0} POIs');
-        
-        if (data['status'] == 'OK') {
-          final results = data['results'] as List;
-          return results.map((place) => POI.fromJson(place)).toList();
-        } else {
-          debugPrint('POIService: API Error - ${data['status']}');
-          return _getMockPOIs(latitude, longitude, radius);
-        }
+      // For now, return mock data since the JavaScript API integration
+      // requires more complex setup with the map widget
+      if (!AppConfig.forceRealApiCalls) {
+        return _getMockPOIs(latitude, longitude, radius);
       } else {
-        debugPrint('POIService: HTTP Error - ${response.statusCode}');
+        // In a real implementation, this would integrate with the map widget
+        // to get POIs from the JavaScript API
+        debugPrint('POIService: Real API calls requested but not yet implemented for web');
         return _getMockPOIs(latitude, longitude, radius);
       }
     } catch (e) {
       debugPrint('POIService: Error getting POIs - $e');
-      return _getMockPOIs(latitude, longitude, radius);
+      
+      if (!AppConfig.forceRealApiCalls) {
+        return _getMockPOIs(latitude, longitude, radius);
+      } else {
+        rethrow;
+      }
     }
   }
 

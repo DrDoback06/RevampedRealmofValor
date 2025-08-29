@@ -128,9 +128,9 @@ class _QuestDetailScreenState extends ConsumerState<QuestDetailScreen> {
   IconData _getQuestTypeIcon(QuestType type) {
     switch (type) {
       case QuestType.battle:
-        return Icons.sword;
+        return Icons.gps_fixed;
       case QuestType.treasure:
-        return Icons.chest;
+        return Icons.inventory;
       case QuestType.location:
         return Icons.explore;
       case QuestType.story:
@@ -315,7 +315,7 @@ class _QuestDetailScreenState extends ConsumerState<QuestDetailScreen> {
                           const Spacer(),
                           if (_routeInfo != null)
                             Text(
-                              '${_routeInfo!.duration.inMinutes} min walk',
+                              '${_routeInfo!.duration} walk',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                         ],
@@ -471,7 +471,7 @@ class _QuestDetailScreenState extends ConsumerState<QuestDetailScreen> {
                           Expanded(
                             child: ElevatedButton.icon(
                               onPressed: _startBattle,
-                              icon: const Icon(Icons.sword),
+                              icon: const Icon(Icons.gps_fixed),
                               label: const Text('Start Battle'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.red,
@@ -502,14 +502,12 @@ class _QuestDetailScreenState extends ConsumerState<QuestDetailScreen> {
       ),
     );
   }
-<<<<<<< Current (Your changes)
-=======
 
   Widget _buildRewardChip(String label, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: color),
       ),
@@ -530,6 +528,5 @@ class _QuestDetailScreenState extends ConsumerState<QuestDetailScreen> {
       ),
     );
   }
->>>>>>> Incoming (Background Agent changes)
 }
 
