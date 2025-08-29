@@ -63,7 +63,7 @@ final questsStreamProvider = StreamProvider<List<Quest>>((ref) async* {
           yield activeQuests.values.toList();
         }
         break;
-      case 'quest_progress':
+      case 'quest.progress':
         if (event.data?['quest_id'] != null && event.data?['objective_id'] != null) {
           final questId = event.data!['quest_id'] as String;
           final objectiveId = event.data!['objective_id'] as String;
@@ -114,7 +114,7 @@ final questsStreamProvider = StreamProvider<List<Quest>>((ref) async* {
           }
         }
         break;
-      case 'quest_completed':
+      case 'quest.completed':
         if (event.data?['quest_id'] != null) {
           final questId = event.data!['quest_id'] as String;
           final quest = activeQuests[questId];
@@ -470,7 +470,7 @@ class QuestActions {
   
   void completeQuest(String questId) {
     _bus.publish(Event(
-      type: 'quest_completed',
+      type: 'quest.completed',
       data: {'quest_id': questId},
     ));
   }
@@ -484,7 +484,7 @@ class QuestActions {
   
   void updateQuestProgress(String questId, String objectiveId, int newValue) {
     _bus.publish(Event(
-      type: 'quest_progress',
+      type: 'quest.progress',
       data: {
         'quest_id': questId,
         'objective_id': objectiveId,

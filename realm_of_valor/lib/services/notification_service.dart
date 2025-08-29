@@ -71,8 +71,8 @@ class NotificationService {
 
   // Predefined notification templates
   static final Map<String, NotificationTemplate> _templates = {
-    'quest_completed': NotificationTemplate(
-      id: 'quest_completed',
+    'quest.completed': NotificationTemplate(
+      id: 'quest.completed',
       title: 'Quest Completed!',
       message: 'You have successfully completed a quest and earned rewards!',
       type: NotificationType.quest,
@@ -87,8 +87,8 @@ class NotificationService {
       priority: NotificationPriority.high,
       defaultData: {'battle_type': 'pvp'},
     ),
-    'achievement_unlocked': NotificationTemplate(
-      id: 'achievement_unlocked',
+    'achievement.unlocked': NotificationTemplate(
+      id: 'achievement.unlocked',
       title: 'Achievement Unlocked!',
       message: 'Congratulations! You have unlocked a new achievement!',
       type: NotificationType.achievement,

@@ -41,7 +41,7 @@ class LocationServicesAgent extends BaseAgent {
   void _applyMock(Event evt) {
     _lat = (evt.data?['lat'] as num).toDouble();
     _lon = (evt.data?['lon'] as num).toDouble();
-    bus.publish(Event(type: 'location_update', data: {'lat': _lat, 'lon': _lon}));
+    bus.publish(Event(type: 'location.update', data: {'lat': _lat, 'lon': _lon}));
     _checkFences();
   }
 
@@ -55,7 +55,7 @@ class LocationServicesAgent extends BaseAgent {
 
   void _tick() {
     if (_lat == null || _lon == null) return;
-    bus.publish(Event(type: 'location_update', data: {'lat': _lat, 'lon': _lon}));
+    bus.publish(Event(type: 'location.update', data: {'lat': _lat, 'lon': _lon}));
     _checkFences();
   }
 
@@ -65,7 +65,7 @@ class LocationServicesAgent extends BaseAgent {
       final nowInside = d <= fence.radiusM;
       if (nowInside != fence.inside) {
         fence.inside = nowInside;
-        bus.publish(Event(type: nowInside ? 'geofence_entered' : 'geofence_exited', data: {'id': fence.id}));
+        bus.publish(Event(type: nowInside ? 'geofence.entered' : 'geofence.exited', data: {'id': fence.id}));
         if (nowInside) {
           bus.publish(Event(type: 'quest.location_reached', data: {'geofenceId': fence.id}));
         }

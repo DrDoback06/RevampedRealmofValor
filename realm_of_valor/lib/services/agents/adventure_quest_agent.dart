@@ -14,8 +14,8 @@ class AdventureQuestAgent extends BaseAgent {
   Future<void> onInitialize() async {
     bus.subscribe('quest.add', (evt, b) => _addQuest(evt));
     bus.subscribe('quest.location_reached', (evt, b) => _progressByType(evt, QuestType.location));
-    bus.subscribe('battle_ended', (evt, b) => _progressByType(evt, QuestType.battle));
-    bus.subscribe('fitness_goal_reached', (evt, b) => _progressByType(evt, QuestType.fitness));
+    bus.subscribe('battle.ended', (evt, b) => _progressByType(evt, QuestType.battle));
+    bus.subscribe('fitness.goal_reached', (evt, b) => _progressByType(evt, QuestType.fitness));
   }
 
   @override
@@ -57,7 +57,7 @@ class AdventureQuestAgent extends BaseAgent {
       rewards: const QuestRewards(xp: 100),
     );
     _active[q.id] = q;
-    bus.publish(Event(type: 'quest_added', data: {'id': q.id}));
+    bus.publish(Event(type: 'quest.added', data: {'id': q.id}));
   }
 
   void _progressByType(Event evt, QuestType type) {
@@ -80,11 +80,11 @@ class AdventureQuestAgent extends BaseAgent {
         objectives: updatedObjs, 
         rewards: q.rewards,
       );
-      bus.publish(Event(type: 'quest_progress', data: {'id': q.id, 'status': newStatus.name}));
+      bus.publish(Event(type: 'quest.progress', data: {'id': q.id, 'status': newStatus.name}));
       if (done) {
-        bus.publish(Event(type: 'quest_completed', data: {'id': q.id}));
+        bus.publish(Event(type: 'quest.completed', data: {'id': q.id}));
         if (q.rewards.xp > 0) {
-          bus.publish(Event(type: 'battle_result', data: {'win': true, 'xp': q.rewards.xp}));
+          bus.publish(Event(type: 'battle.result', data: {'win': true, 'xp': q.rewards.xp}));
         }
       }
     }

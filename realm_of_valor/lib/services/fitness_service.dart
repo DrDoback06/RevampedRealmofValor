@@ -1934,7 +1934,7 @@ class FitnessService {
 
     // Emit events for completed goals
     if (totalDistance >= 5) { // 5km daily goal
-      EventBus().emit('fitness_goal_reached', {
+      EventBus().emit('fitness.goal_reached', {
         'goal': 'daily_distance',
         'value': totalDistance,
         'target': 5,
@@ -1942,7 +1942,7 @@ class FitnessService {
     }
 
     if (totalTime >= 1800) { // 30 minutes daily goal
-      EventBus().emit('fitness_goal_reached', {
+      EventBus().emit('fitness.goal_reached', {
         'goal': 'daily_time',
         'value': totalTime,
         'target': 1800,
@@ -1950,7 +1950,7 @@ class FitnessService {
     }
 
     if (todayActivities.length >= 1) { // 1 workout daily goal
-      EventBus().emit('fitness_goal_reached', {
+      EventBus().emit('fitness.goal_reached', {
         'goal': 'daily_workouts',
         'value': todayActivities.length,
         'target': 1,

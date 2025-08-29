@@ -40,9 +40,9 @@ class AICompanionAgent extends BaseAgent {
     
     // Proactive events
     bus.subscribe('quest.add', (evt, b) => _onQuestAdded(evt));
-    bus.subscribe('quest.complete', (evt, b) => _onQuestComplete(evt));
+    bus.subscribe('quest.completed', (evt, b) => _onQuestComplete(evt));
     bus.subscribe('battle.start', (evt, b) => _onBattleStart(evt));
-    bus.subscribe('battle.end', (evt, b) => _onBattleEnd(evt));
+    bus.subscribe('battle.ended', (evt, b) => _onBattleEnd(evt));
     bus.subscribe('fitness.update', (evt, b) => _onFitnessUpdate(evt));
     bus.subscribe('achievement.unlock', (evt, b) => _onAchievementUnlock(evt));
     bus.subscribe('card.obtain', (evt, b) => _onCardObtain(evt));
@@ -70,7 +70,7 @@ class AICompanionAgent extends BaseAgent {
       debugPrint('AICompanionAgent: Generated response: $response');
       
       bus.publish(Event(
-        type: 'companion.response',
+        type: 'companion.reply',
         data: {
           'question': question,
           'response': response,

@@ -35,7 +35,7 @@ class BattleSystemAgent extends BaseAgent {
       def: (evt.data?['enemy_def'] as num?)?.toInt() ?? 2,
     );
     _state = BattleState(player: player, enemy: enemy);
-    b.publish(Event(type: 'battle_started'));
+    b.publish(Event(type: 'battle.started'));
     _emitTurn();
   }
 
@@ -56,7 +56,7 @@ class BattleSystemAgent extends BaseAgent {
   void _applyAttack({required BattleEntity attacker, required BattleEntity defender, required EventBus b}) {
     final damage = (attacker.atk - defender.def).clamp(0, 9999);
     if (damage > 0) defender.hp = (defender.hp - damage).clamp(0, 9999);
-    b.publish(Event(type: 'battle_turn_resolved', data: {
+    b.publish(Event(type: 'battle.turn_resolved', data: {
       'attacker': attacker.id,
       'defender': defender.id,
       'damage': damage,
@@ -71,7 +71,7 @@ class BattleSystemAgent extends BaseAgent {
     if (s.player.hp <= 0 || s.enemy.hp <= 0) {
       s.ended = true;
       s.winnerId = s.player.hp > 0 ? s.player.id : s.enemy.id;
-      b.publish(Event(type: 'battle_ended', data: {'winner': s.winnerId, 'xp': s.winnerId == 'player' ? 50 : 0}));
+      b.publish(Event(type: 'battle.ended', data: {'winner': s.winnerId, 'xp': s.winnerId == 'player' ? 50 : 0}));
     }
   }
 

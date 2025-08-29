@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../services/weather_service.dart';
+import '../../../core/config.dart';
 import '../../../data/models/weather_model.dart';
 
 // Weather Service Provider
 final weatherServiceProvider = Provider<WeatherService>((ref) {
-  // Use MockWeatherService for development
-  // In production, use OpenWeatherMapService with API key
+  final key = AppConfig.openWeatherApiKey;
+  if (key.isNotEmpty) {
+    return OpenWeatherMapService(apiKey: key);
+  }
   return MockWeatherService();
 });
 

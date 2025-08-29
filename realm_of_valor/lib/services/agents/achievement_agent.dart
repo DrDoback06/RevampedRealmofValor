@@ -31,13 +31,13 @@ class AchievementAgent extends BaseAgent {
   void _subscribeToEvents(Achievement achievement) {
     switch (achievement.category) {
       case AchievementCategory.battle:
-        bus.subscribe('battle_ended', (evt, b) => _handleBattleEvent(achievement, evt));
+        bus.subscribe('battle.ended', (evt, b) => _handleBattleEvent(achievement, evt));
         break;
       case AchievementCategory.quest:
-        bus.subscribe('quest_completed', (evt, b) => _handleQuestEvent(achievement, evt));
+        bus.subscribe('quest.completed', (evt, b) => _handleQuestEvent(achievement, evt));
         break;
       case AchievementCategory.fitness:
-        bus.subscribe('fitness_goal_reached', (evt, b) => _handleFitnessEvent(achievement, evt));
+        bus.subscribe('fitness.goal_reached', (evt, b) => _handleFitnessEvent(achievement, evt));
         break;
       case AchievementCategory.collection:
         bus.subscribe('card_collected', (evt, b) => _handleCollectionEvent(achievement, evt));
@@ -97,7 +97,7 @@ class AchievementAgent extends BaseAgent {
     
     // If achievement is completed, publish event
     if (isCompleted) {
-      bus.publish(Event(type: 'achievement_unlocked', data: {
+      bus.publish(Event(type: 'achievement.unlocked', data: {
         'id': achievement.id,
         'name': achievement.name,
         'points': achievement.points,

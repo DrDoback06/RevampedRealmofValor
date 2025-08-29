@@ -9,18 +9,18 @@ class UIUXAgent extends BaseAgent {
 
   @override
   Future<void> onInitialize() async {
-    bus.subscribe('achievement_unlocked', (evt, b) {
+    bus.subscribe('achievement.unlocked', (evt, b) {
       final title = evt.data?['title'] as String? ?? 'Achievement unlocked';
       b.publish(Event(type: 'ui.notify', data: {'level': 'success', 'message': title}));
     });
 
-    bus.subscribe('battle_ended', (evt, b) {
+    bus.subscribe('battle.ended', (evt, b) {
       final winner = evt.data?['winner'] as String?;
       final text = winner == 'player' ? 'Victory!' : 'Defeat...';
       b.publish(Event(type: 'ui.banner', data: {'text': text}));
     });
 
-    bus.subscribe('quest_completed', (evt, b) {
+    bus.subscribe('quest.completed', (evt, b) {
       b.publish(Event(type: 'ui.notify', data: {'level': 'info', 'message': 'Quest completed!'}));
     });
   }

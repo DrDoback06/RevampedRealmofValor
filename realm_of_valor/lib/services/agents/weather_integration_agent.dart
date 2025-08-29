@@ -14,7 +14,7 @@ class WeatherIntegrationAgent extends BaseAgent {
 
   @override
   Future<void> onInitialize() async {
-    bus.subscribe('location_update', (evt, b) async {
+    bus.subscribe('location.update', (evt, b) async {
       final lat = (evt.data?['lat'] as num?)?.toDouble();
       final lon = (evt.data?['lon'] as num?)?.toDouble();
       if (lat == null || lon == null) return;

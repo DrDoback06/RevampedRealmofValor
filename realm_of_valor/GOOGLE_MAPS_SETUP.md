@@ -27,7 +27,7 @@ Go to [Google Cloud Console](https://console.cloud.google.com/) and enable these
 ### 2. **Configure API Key Restrictions**
 
 1. Go to: APIs & Services > Credentials
-2. Find your API key: `AIzaSyCgAWPowBy2-0_KszZVUtu6aOScvUzqVU0`
+2. Find your API key (do not commit it to source control)
 3. Click on the key to edit
 4. Under "Application restrictions":
    - Select "HTTP referrers (web sites)"
@@ -89,10 +89,8 @@ If the current key has issues:
 1. Go to: APIs & Services > Credentials
 2. Click "Create Credentials" > "API Key"
 3. Copy the new key
-4. Update these files:
-   - `lib/core/config.dart`
-   - `web/index.html`
-   - `android/app/src/main/AndroidManifest.xml`
+4. Provide the new key at build time using flutter defines and avoid hardcoding in files:
+   - Example: `flutter run --dart-define=MAPS_KEY=YOUR_KEY`
 
 ### 7. **Debug Mode**
 
@@ -108,11 +106,11 @@ Look for these debug messages:
 
 ### 8. **Force Real API Calls**
 
-The app is configured to force real API calls. If you want to temporarily use mock data:
+For development (especially on web), you may prefer mock data. To enable real API calls in the app, set:
 
 ```dart
-// In lib/core/config.dart
-static const bool forceRealApiCalls = false;
+// In lib/core/config.dart via --dart-define
+// FORCE_REAL_API_CALLS=true
 ```
 
 ## Testing Checklist
