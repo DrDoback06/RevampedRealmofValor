@@ -24,8 +24,8 @@ class CharacterManagementAgent extends BaseAgent {
   Future<void> onInitialize() async {
     bus.subscribe('character.load', _onLoad);
     bus.subscribe('character.switch', _onSwitch);
-    bus.subscribe('fitness_update', _onFitnessUpdate);
-    bus.subscribe('battle_result', _onBattleResult);
+    bus.subscribe('fitness.update', _onFitnessUpdate);
+    bus.subscribe('battle.result', _onBattleResult);
     bus.subscribe('equipment_changed', _onEquipmentChanged);
   }
 
@@ -100,7 +100,7 @@ class CharacterManagementAgent extends BaseAgent {
         intelligence: stats.intelligence + 1,
         vitality: stats.vitality + 1,
       );
-      bus.publish(Event(type: 'character_level_up', data: {'level': level}));
+      bus.publish(Event(type: 'character.level_up', data: {'level': level}));
     }
     final updated = Character(
       uid: current.uid,

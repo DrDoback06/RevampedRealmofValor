@@ -9,8 +9,9 @@ import '../domain/cards/card_repository.dart';
 import '../domain/characters/character_repository.dart';
 import '../domain/inventory/inventory_repository.dart';
 import '../domain/quests/quest_repository.dart';
-import '../integration/fitness_service.dart';
-import '../integration/weather_service.dart';
+import '../integration/fitness_service.dart' as fitness_integration;
+import '../integration/weather_service.dart' as weather_integration;
+import '../services/weather_service.dart' as weather_services;
 import '../services/event_bus.dart';
 import '../services/integration_orchestrator_agent.dart';
 import '../services/agents/character_management_agent.dart';
@@ -53,12 +54,15 @@ final localStoreProvider = FutureProvider<LocalStore>((ref) async {
   return LocalStore.create();
 });
 
-final fitnessServiceProvider = Provider<FitnessService>((ref) {
-  return StubFitnessService();
+final fitnessServiceProvider = Provider<fitness_integration.FitnessService>((ref) {
+  // Web/dev default stub; can be swapped via env flag later
+  return fitness_integration.StubFitnessService();
 });
 
-final weatherServiceProvider = Provider<WeatherService>((ref) {
-  return StubWeatherService();
+final weatherServiceProvider = Provider<weather_integration.WeatherService>((ref) {
+  // Adapt the richer WeatherService into the simple interface expected by WeatherIntegrationAgent
+  final inner = weather_services.MockWeatherService();
+  return _WeatherServiceAdapter(inner);
 });
 
 final eventBusProvider = Provider<EventBus>((ref) {
@@ -113,7 +117,7 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
         rarity: AchievementRarity.common,
         icon: '⚔️',
         points: 10,
-        requirements: {'battle_ended': 1},
+        requirements: {'battle.ended': 1},
       ),
       Achievement(
         id: 'step_starter',
@@ -123,7 +127,7 @@ final orchestratorProvider = Provider<IntegrationOrchestratorAgent>((ref) {
         rarity: AchievementRarity.common,
         icon: '👟',
         points: 5,
-        requirements: {'fitness_goal_reached': 1},
+        requirements: {'fitness.goal_reached': 1},
       ),
     ]),
     essential: false,
@@ -195,3 +199,14 @@ final inventoryRepositoryProvider = Provider<InventoryRepository>((ref) {
 final questRepositoryProvider = Provider<QuestRepository>((ref) {
   return FirebaseQuestRepository(ref.watch(firebaseServiceProvider));
 });
+
+class _WeatherServiceAdapter implements weather_integration.WeatherService {
+  _WeatherServiceAdapter(this._inner);
+  final weather_services.WeatherService _inner;
+
+  @override
+  Future<Map<String, dynamic>> currentWeather({required double lat, required double lon}) async {
+    final w = await _inner.getCurrentWeather(lat, lon);
+    return {'condition': w.condition, 'temp_c': w.temperature};
+  }
+}

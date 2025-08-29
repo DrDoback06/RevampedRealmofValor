@@ -41,7 +41,7 @@ class FitnessTrackingAgent extends BaseAgent {
       final distance = await service.distanceTodayKm();
       if (steps != _lastSteps) {
         _lastSteps = steps;
-        bus.publish(Event(type: 'fitness_update', data: {'steps': steps, 'distance_km': distance}));
+        bus.publish(Event(type: 'fitness.update', data: {'steps': steps, 'distance_km': distance}));
       }
       _checkGoal(steps);
     } catch (e) {
@@ -59,7 +59,7 @@ class FitnessTrackingAgent extends BaseAgent {
         // New day goal reached
         _streakDays = (lastDate == null || lastDate == todayDate.subtract(const Duration(days: 1))) ? _streakDays + 1 : 1;
         _lastGoalDate = today;
-        bus.publish(Event(type: 'fitness_goal_reached', data: {'steps': steps, 'streak_days': _streakDays}));
+        bus.publish(Event(type: 'fitness.goal_reached', data: {'steps': steps, 'streak_days': _streakDays}));
       }
     }
   }

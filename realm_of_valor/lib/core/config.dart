@@ -1,14 +1,10 @@
 class AppConfig {
-  // API Keys - Real keys provided by user
-  // Note: You need to replace these with your actual API keys
-  static const String googleMapsApiKey = 'AIzaSyCgAWPowBy2-0_KszZVUtu6aOScvUzqVU0';
-  
-  static const String stravaClientId = '167388';
-  static const String stravaClientSecret = '61689135684e7ca1668a49623ab31b493580f0ad';
-  
-  static const String allTrailsApiKey = 'your_alltrails_api_key';
-  
-  static const String openWeatherApiKey = '6607a000b24b386d7433a40ff4cc068c';
+  // API Keys are supplied via --dart-define or env. Do not hardcode secrets in source.
+  static const String googleMapsApiKey = String.fromEnvironment('MAPS_KEY', defaultValue: '');
+  static const String stravaClientId = String.fromEnvironment('STRAVA_CLIENT_ID', defaultValue: '');
+  static const String stravaClientSecret = String.fromEnvironment('STRAVA_CLIENT_SECRET', defaultValue: '');
+  static const String allTrailsApiKey = String.fromEnvironment('ALLTRAILS_API_KEY', defaultValue: '');
+  static const String openWeatherApiKey = String.fromEnvironment('OPENWEATHER_API_KEY', defaultValue: '');
   
   // App Settings
   static const bool enableMockData = bool.fromEnvironment(

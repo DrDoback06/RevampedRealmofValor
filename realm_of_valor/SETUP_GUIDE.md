@@ -17,7 +17,12 @@ You need a valid Google Maps API key to enable:
    - Places API
    - Directions API
 4. Create credentials (API Key)
-5. Replace `YOUR_ACTUAL_GOOGLE_MAPS_API_KEY` in `lib/core/config.dart`
+5. Supply keys via flutter defines (do NOT hardcode):
+   - Add to your run command:
+     - `--dart-define=MAPS_KEY=YOUR_GOOGLE_MAPS_API_KEY`
+     - `--dart-define=OPENWEATHER_API_KEY=YOUR_OPENWEATHER_KEY`
+     - `--dart-define=STRAVA_CLIENT_ID=YOUR_STRAVA_CLIENT_ID`
+     - `--dart-define=STRAVA_CLIENT_SECRET=YOUR_STRAVA_CLIENT_SECRET`
 
 ### 2. Strava API
 You already have Strava credentials:
@@ -117,7 +122,11 @@ firebase deploy --only firestore:indexes
 
 ### 3. Run the App
 ```bash
-flutter run -d chrome
+flutter run -d chrome \
+  --dart-define=MAPS_KEY=YOUR_GOOGLE_MAPS_API_KEY \
+  --dart-define=OPENWEATHER_API_KEY=YOUR_OPENWEATHER_KEY \
+  --dart-define=STRAVA_CLIENT_ID=YOUR_STRAVA_CLIENT_ID \
+  --dart-define=STRAVA_CLIENT_SECRET=YOUR_STRAVA_CLIENT_SECRET
 ```
 
 ## 🔍 **Troubleshooting**
