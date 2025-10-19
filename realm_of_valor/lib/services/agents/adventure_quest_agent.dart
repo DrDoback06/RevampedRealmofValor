@@ -1,4 +1,6 @@
 import '../../data/models/quest_model.dart';
+import '../../data/models/card_model.dart';
+import '../../utils/character_progression.dart';
 import '../base_agent.dart';
 import '../event_bus.dart';
 
@@ -82,9 +84,29 @@ class AdventureQuestAgent extends BaseAgent {
       );
       bus.publish(Event(type: 'quest_progress', data: {'id': q.id, 'status': newStatus.name}));
       if (done) {
-        bus.publish(Event(type: 'quest_completed', data: {'id': q.id}));
+        bus.publish(Event(type: 'quest_completed', data: {
+          'id': q.id,
+          'quest': q.toJson(),
+          'xp': q.rewards.xp,
+          'gold': q.rewards.gold,
+          'items': q.rewards.items,
+          'skillPoints': q.rewards.skillPoints,
+        }));
+        
+        // Publish rewards for character progression
         if (q.rewards.xp > 0) {
-          bus.publish(Event(type: 'battle_result', data: {'win': true, 'xp': q.rewards.xp}));
+          bus.publish(Event(type: 'character.add_xp', data: {'xp': q.rewards.xp}));
+        }
+        if (q.rewards.gold > 0) {
+          bus.publish(Event(type: 'inventory.add_gold', data: {'gold': q.rewards.gold}));
+        }
+        if (q.rewards.items.isNotEmpty) {
+          for (final itemId in q.rewards.items) {
+            bus.publish(Event(type: 'card.obtain', data: {'cardId': itemId}));
+          }
+        }
+        if (q.rewards.skillPoints > 0) {
+          bus.publish(Event(type: 'character.add_skill_points', data: {'points': q.rewards.skillPoints}));
         }
       }
     }

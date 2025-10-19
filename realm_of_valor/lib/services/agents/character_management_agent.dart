@@ -25,6 +25,7 @@ class CharacterManagementAgent extends BaseAgent {
   Future<void> onInitialize() async {
     bus.subscribe('character.load', _onLoad);
     bus.subscribe('character.switch', _onSwitch);
+    bus.subscribe('character.add_xp', _onAddXp);
     bus.subscribe('fitness_update', _onFitnessUpdate);
     bus.subscribe('battle_result', _onBattleResult);
     bus.subscribe('equipment_changed', _onEquipmentChanged);
@@ -68,6 +69,11 @@ class CharacterManagementAgent extends BaseAgent {
     final steps = (evt.data?['steps'] as num?)?.toInt() ?? 0;
     if (_active == null || steps <= 0) return;
     _grantXp((steps ~/ 1000) * 10);
+  }
+
+  void _onAddXp(Event evt, EventBus b) {
+    final xp = (evt.data?['xp'] as num?)?.toInt() ?? 0;
+    if (xp > 0) _grantXp(xp);
   }
 
   void _onBattleResult(Event evt, EventBus b) {
