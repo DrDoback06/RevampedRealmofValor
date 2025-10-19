@@ -4,6 +4,7 @@ import '../../data/models/character_model.dart';
 import '../../data/models/inventory_model.dart';
 import '../../domain/characters/character_repository.dart';
 import '../../domain/inventory/inventory_repository.dart';
+import '../../utils/stat_calculator.dart';
 import '../base_agent.dart';
 import '../event_bus.dart';
 
@@ -118,7 +119,7 @@ class CharacterManagementAgent extends BaseAgent {
     _emitUpdated();
   }
 
-  int _xpToNext(int level) => 100 + (level - 1) * 50;
+  int _xpToNext(int level) => StatCalculator.xpForNextLevel(level);
 
   Map<String, num> _aggregateEquipmentStats() {
     final inv = _inventory;
@@ -145,17 +146,25 @@ class CharacterManagementAgent extends BaseAgent {
     return stats;
   }
 
-  Map<String, int> _derivedStats() {
+  ComputedStats? getComputedStats() {
     final c = _active;
-    if (c == null) return <String, int>{};
-    final equipment = _aggregateEquipmentStats();
-    final str = c.stats.strength + (equipment['str']?.toInt() ?? 0);
-    final agi = c.stats.agility + (equipment['agi']?.toInt() ?? 0);
-    final vit = c.stats.vitality + (equipment['vit']?.toInt() ?? 0);
-    final atk = str * 2 + (equipment['atk']?.toInt() ?? 0);
-    final def = (vit + agi) + (equipment['def']?.toInt() ?? 0);
-    final hp = vit * 20 + (equipment['hp']?.toInt() ?? 0);
-    return <String, int>{'atk': atk, 'def': def, 'hp': hp};
+    final inv = _inventory;
+    if (c == null || inv == null) return null;
+    
+    return StatCalculator.calculateCharacterStats(
+      character: c,
+      inventory: inv,
+    );
+  }
+
+  Map<String, int> _derivedStats() {
+    final computed = getComputedStats();
+    if (computed == null) return <String, int>{};
+    return <String, int>{
+      'atk': computed.attack,
+      'def': computed.defense,
+      'hp': computed.maxHp,
+    };
   }
 
   void _emitUpdated() {
