@@ -15,6 +15,10 @@ import 'dart:math' as math;
 /// 8. Battery-efficient update throttling
 /// 9. EXTENDED: Works for all quest types (trails, battles, treasure hunts)
 /// 10. Quest-specific camera modes (battle zoom, treasure search view)
+/// 11. QOL: Shake detection - auto-disable follow if user manually moves camera
+/// 12. QOL: Smart pause - auto-pause when user stops moving for 30s
+/// 13. ENHANCE: Cinematic mode - smooth panning for screenshots/videos
+/// 14. ENHANCE: Elevation-aware zoom - adjusts zoom based on altitude
 
 enum CameraMode {
   free,       // User controls camera
@@ -137,6 +141,67 @@ class TrailCameraController {
       default:
         await setCameraMode(CameraMode.follow, currentPosition: currentPosition);
     }
+  }
+  
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // QOL ENHANCEMENTS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  
+  /// QOL: Detect if user is manually controlling camera
+  void onCameraMove() {
+    if (_currentMode == CameraMode.free) return;
+    
+    // User moved camera manually
+    _isUserControlled = true;
+    _lastUpdate = DateTime.now();
+    
+    print('Camera: User control detected, pausing auto-follow');
+    
+    // Reset after 10 seconds of no manual control
+    Future.delayed(manualControlResetTime, () {
+      _isUserControlled = false;
+      print('Camera: Auto-follow resumed');
+    });
+  }
+  
+  /// QOL: Smart pause when user stops moving
+  void checkSmartPause() {
+    if (_lastMovement == null) return;
+    if (_currentMode == CameraMode.free) return;
+    
+    final now = DateTime.now();
+    final timeSinceMovement = now.difference(_lastMovement!);
+    
+    if (timeSinceMovement > pauseThreshold && !_isPaused) {
+      _isPaused = true;
+      print('Camera: Auto-paused (no movement for ${timeSinceMovement.inSeconds}s)');
+    }
+  }
+  
+  /// ENHANCE: Enable cinematic mode for smooth panning
+  Future<void> enableCinematicMode(Position currentPosition) async {
+    await _controller?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(currentPosition.latitude, currentPosition.longitude),
+          zoom: 17.0,
+          tilt: 60.0,
+          bearing: _currentBearing,
+        ),
+      ),
+      duration: const Duration(milliseconds: 3000), // Slow cinematic pan
+    );
+  }
+  
+  /// ENHANCE: Elevation-aware zoom adjustment
+  double _getElevationAwareZoom(Position position) {
+    final altitude = position.altitude;
+    
+    // Higher altitude = zoom out more
+    if (altitude > 1000) return 14.0; // Very high (mountains)
+    if (altitude > 500) return 15.0;  // High (hills)
+    if (altitude > 100) return 16.0;  // Medium
+    return 17.0; // Low/sea level
   }
 
   /// Update camera position based on player movement
