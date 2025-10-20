@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:math';
-import '../../../data/models/character_model.dart';
-import '../../../data/models/battle_model.dart';
-import '../../../services/event_bus.dart';
-import '../../../core/di.dart';
+import '../../data/models/character_model.dart';
+import '../../data/models/battle_model.dart';
+import '../../services/event_bus.dart';
+import '../../core/di.dart';
 import '../character/providers.dart';
 import '../inventory/providers.dart';
 
@@ -46,14 +46,20 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 
   void _initializeBattle() {
     final character = ref.read(characterStreamProvider).value;
+    final computedStats = ref.read(computedStatsProvider);
     if (character == null) return;
+
+    // Use computed stats if available, otherwise fall back to base stats
+    final hp = computedStats?.maxHp ?? (character.stats.vitality * 10);
+    final atk = computedStats?.attack ?? character.stats.strength;
+    final def = computedStats?.defense ?? (character.stats.agility ~/ 2);
 
     final player = BattleEntity(
       id: 'player',
       name: character.name,
-      hp: character.stats.vitality * 10, // Convert vitality to HP
-      atk: character.stats.strength,
-      def: character.stats.agility ~/ 2,
+      hp: hp,
+      atk: atk,
+      def: def,
     );
 
     final enemy = BattleEntity(
@@ -66,6 +72,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 
     _battleState = BattleState(player: player, enemy: enemy);
     _addToLog('Battle started! ${player.name} vs ${enemy.name}');
+    _addToLog('Player stats - HP: $hp, ATK: $atk, DEF: $def');
   }
 
   void _addToLog(String message) {

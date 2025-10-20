@@ -14,10 +14,12 @@ import '../../../services/adventure_api_service.dart';
 import '../../../services/quest_generator_service.dart';
 import '../../../services/epic_map_loader.dart';
 import '../../../data/models/quest_model.dart';
+import '../../../data/models/trail_model.dart';
 import '../../../core/di.dart';
 import '../quests/providers.dart';
 import '../quests/quest_list_screen.dart';
 import 'fantasy_map_style.dart';
+import 'components/trail_camera_controller.dart';
 import 'package:realm_of_valor/features/battle/enhanced_battle_screen.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
@@ -34,6 +36,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _locationPermissionGranted = false;
   bool _isTracking = false;
   final List<String> _debugLog = [];
+  
+  // ENHANCEMENT: Trail camera controller for drive mode
+  TrailCameraController? _cameraController;
+  Trail? _activeTrail;
+  int _currentWaypointIndex = 0;
+  bool _isDriveMode = false;
   
   // Quest markers by type
   final Set<Marker> _enemyMarkers = {};
@@ -503,9 +511,140 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
-  void _startTrailQuest(Quest trailQuest) {
+  void _startTrailQuest(Quest trailQuest) async {
     _logDebug('Starting trail quest: ${trailQuest.title}');
-    _startQuest(trailQuest);
+    
+    // Extract trail ID from quest tags
+    final trailIdTag = trailQuest.tags.firstWhere(
+      (tag) => tag.startsWith('trail_id:'),
+      orElse: () => '',
+    );
+    
+    if (trailIdTag.isEmpty) {
+      _startQuest(trailQuest);
+      return;
+    }
+    
+    final trailId = trailIdTag.split(':')[1];
+    final trail = TrailService.getTrailById(trailId);
+    
+    if (trail == null) {
+      _startQuest(trailQuest);
+      return;
+    }
+    
+    // ENHANCEMENT: Enable drive mode for trail
+    await _startTrailWithDriveMode(trail, trailQuest);
+  }
+  
+  /// ENHANCEMENT: Start trail with automatic drive/follow mode
+  Future<void> _startTrailWithDriveMode(Trail trail, Quest quest) async {
+    _logDebug('Starting trail with drive mode: ${trail.name}');
+    
+    setState(() {
+      _activeTrail = trail;
+      _currentWaypointIndex = 0;
+      _isDriveMode = true;
+    });
+    
+    // Add quest to quest system
+    final questActions = ref.read(questActionsProvider);
+    questActions.addLocationQuest(
+      quest.title,
+      trail.startLocation.latitude,
+      trail.startLocation.longitude,
+      'trail',
+    );
+    
+    // Create geofences for all waypoints
+    _createTrailGeofences(trail);
+    
+    // Start location tracking
+    if (!_isTracking) {
+      _startLocationTracking();
+    }
+    
+    // ENHANCEMENT: Enable drive mode camera
+    final currentPos = await Geolocator.getCurrentPosition();
+    await _cameraController?.enableDriveMode(currentPos);
+    
+    // Show drive mode UI notification
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.navigation, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Drive Mode Active',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Camera will follow you at 45° angle',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green.shade700,
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Disable',
+            textColor: Colors.white,
+            onPressed: () => _disableDriveMode(),
+          ),
+        ),
+      );
+    }
+  }
+  
+  /// Create geofences for trail waypoints
+  void _createTrailGeofences(Trail trail) {
+    _logDebug('Creating ${trail.waypoints.length} trail geofences');
+    
+    for (int i = 0; i < trail.waypoints.length; i++) {
+      final waypoint = trail.waypoints[i];
+      final geofence = Circle(
+        circleId: CircleId('trail_waypoint_$i'),
+        center: waypoint,
+        radius: 30.0, // 30m radius for waypoint detection
+        fillColor: Colors.green.withOpacity(0.2),
+        strokeColor: Colors.green,
+        strokeWidth: 2,
+      );
+      
+      setState(() {
+        _geofences.add(geofence);
+      });
+    }
+  }
+  
+  /// Disable drive mode
+  Future<void> _disableDriveMode() async {
+    _logDebug('Disabling drive mode');
+    
+    setState(() {
+      _isDriveMode = false;
+    });
+    
+    await _cameraController?.disableFollowMode();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Drive mode disabled'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   void _navigateToQuestList() {
@@ -661,12 +800,144 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           _currentPosition = LatLng(position.latitude, position.longitude);
         });
         
+        // ENHANCEMENT: Update camera in drive mode
+        if (_isDriveMode && _cameraController != null) {
+          _cameraController!.updatePosition(position);
+        }
+        
+        // ENHANCEMENT: Check trail waypoint progress
+        if (_activeTrail != null) {
+          _checkTrailWaypointProgress(position);
+        }
+        
         _checkNearbyQuests();
         _updateQuestMarkers();
       }
     });
   }
 
+  /// ENHANCEMENT: Check trail waypoint progress with notifications
+  void _checkTrailWaypointProgress(Position position) {
+    if (_activeTrail == null) return;
+    if (_currentWaypointIndex >= _activeTrail!.waypoints.length) return;
+    
+    final waypoint = _activeTrail!.waypoints[_currentWaypointIndex];
+    final distance = Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      waypoint.latitude,
+      waypoint.longitude,
+    );
+    
+    // Check if reached waypoint (within 30m)
+    if (distance <= 30.0) {
+      _onWaypointReached(_currentWaypointIndex);
+    }
+  }
+  
+  /// Handle waypoint reached
+  void _onWaypointReached(int waypointIndex) {
+    _logDebug('Waypoint $waypointIndex reached!');
+    
+    setState(() {
+      _currentWaypointIndex = waypointIndex + 1;
+    });
+    
+    final progress = (_currentWaypointIndex / _activeTrail!.waypoints.length * 100).toStringAsFixed(0);
+    
+    // Show notification
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Waypoint ${waypointIndex + 1} Reached!',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Trail Progress: $progress%',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.blue.shade700,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+    
+    // Check if trail completed
+    if (_currentWaypointIndex >= _activeTrail!.waypoints.length) {
+      _onTrailCompleted();
+    }
+  }
+  
+  /// Handle trail completion
+  void _onTrailCompleted() {
+    _logDebug('Trail completed: ${_activeTrail!.name}');
+    
+    // Disable drive mode
+    _disableDriveMode();
+    
+    // Show completion dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.emoji_events, color: Colors.amber, size: 32),
+            const SizedBox(width: 12),
+            const Text('Trail Completed!'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _activeTrail!.name,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('Distance: ${(_activeTrail!.distance / 1000).toStringAsFixed(1)} km'),
+            Text('Elevation: ${_activeTrail!.elevationGain.toStringAsFixed(0)} m'),
+            const SizedBox(height: 16),
+            const Text(
+              'Calculating rewards...',
+              style: TextStyle(fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _activeTrail = null;
+                _currentWaypointIndex = 0;
+              });
+            },
+            child: const Text('Awesome!'),
+          ),
+        ],
+      ),
+    );
+  }
+  
   void _checkNearbyQuests() {
     for (final quest in _randomQuests) {
       if (quest.location == null) continue;
@@ -856,7 +1127,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                      GoogleMap(
              onMapCreated: (GoogleMapController controller) {
                _mapController = controller;
-               _logDebug('Map created');
+               _cameraController = TrailCameraController(controller);
+               _logDebug('Map created with camera controller');
                
                // Apply epic fantasy map style
                if (_epicMapData != null) {

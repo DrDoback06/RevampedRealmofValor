@@ -2,7 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di.dart';
 import '../../data/models/character_model.dart';
 import '../../services/event_bus.dart';
+import '../../utils/stat_calculator.dart';
 import '../auth/providers.dart';
+import '../inventory/providers.dart';
 
 /// Provides the current user's character
 final characterStreamProvider = StreamProvider<Character?>((ref) async* {
@@ -53,6 +55,21 @@ Character _createDefaultCharacter(String uid) {
   );
 }
 
+/// Provides computed stats for the current character (including equipment bonuses)
+final computedStatsProvider = Provider<ComputedStats?>((ref) {
+  final character = ref.watch(characterStreamProvider).value;
+  final inventory = ref.watch(inventoryStreamProvider).value;
+  
+  if (character == null || inventory == null) {
+    return null;
+  }
+  
+  return StatCalculator.calculateCharacterStats(
+    character: character,
+    inventory: inventory,
+  );
+});
+
 /// Actions for character management
 final characterActionsProvider = Provider((ref) {
   final eventBus = ref.watch(eventBusProvider);
@@ -74,6 +91,13 @@ class CharacterActions {
     _eventBus.publish(Event(
       type: 'character.add_skill_point',
       data: {'characterId': characterId, 'skillName': skillName},
+    ));
+  }
+
+  void addXp(int xp) {
+    _eventBus.publish(Event(
+      type: 'character.add_xp',
+      data: {'xp': xp},
     ));
   }
 }
