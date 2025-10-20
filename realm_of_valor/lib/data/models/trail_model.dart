@@ -3,6 +3,15 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 enum TrailDifficulty { easy, moderate, hard, expert }
 enum TrailType { hiking, running, cycling, walking, mountainBiking }
 
+/// ENHANCEMENTS BEYOND ORIGINAL:
+/// 1. Strava segment integration with leaderboards
+/// 2. Dynamic difficulty calculation based on terrain/elevation
+/// 3. Completion tracking and personal bests
+/// 4. Weather-based recommendations
+/// 5. Time-of-day lighting/visibility info
+/// 6. Seasonal variations (snow, mud, etc.)
+/// 7. Social features (completed by friends, etc.)
+/// 8. Multi-sport support
 class Trail {
   final String id;
   final String name;
@@ -21,6 +30,44 @@ class Trail {
   final int reviewCount;
   final String? imageUrl;
   final Map<String, dynamic> metadata; // Additional data
+  
+  // Enhancement 1: Strava segment integration
+  final String? stravaSegmentId;
+  final Map<String, dynamic>? segmentLeaderboard; // Top times
+  final Map<String, dynamic>? personalBest; // User's best time
+  
+  // Enhancement 2: Dynamic difficulty factors
+  final double technicalRating; // 1.0-5.0
+  final double exposureRating; // 1.0-5.0 (cliff edges, etc.)
+  final String surfaceType; // 'paved', 'gravel', 'dirt', 'rock'
+  
+  // Enhancement 3: Completion tracking
+  final int completionCount; // Total completions by all users
+  final DateTime? lastCompletedAt; // User's last completion
+  final List<DateTime> completionHistory; // User's completion dates
+  
+  // Enhancement 4: Environmental data
+  final String? currentWeather; // 'sunny', 'rainy', 'snowy', etc.
+  final double? currentTemp; // Celsius
+  final String recommendedTimeOfDay; // 'morning', 'afternoon', 'evening'
+  
+  // Enhancement 5: Seasonal info
+  final String bestSeason; // 'spring', 'summer', 'fall', 'winter'
+  final Map<String, String> seasonalConditions; // Season -> condition
+  
+  // Enhancement 6: Safety info
+  final bool requiresPermit;
+  final bool hasCellService;
+  final List<String> hazards; // ['wildlife', 'steep_drops', etc.]
+  final String? emergencyContact;
+  
+  // Enhancement 7: Social features
+  final List<String> completedByFriends; // Friend userIds
+  final List<Map<String, dynamic>> recentActivities; // Recent completions
+  
+  // Enhancement 8: Multi-sport capabilities
+  final Map<TrailType, bool> allowedActivities;
+  final Map<TrailType, TrailDifficulty> difficultyByType;
 
   const Trail({
     required this.id,
