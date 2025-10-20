@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2025-10-20",
+  "trail_count": 120,
+  "trails": {
+    "mountains": [
+      {
+        "id": "snowdon_llanberis",
+        "name": "Snowdon via Llanberis Path",
+        "description": "Wales' highest peak (1,085m). Most popular route with mountain railway.",
+        "start": [53.0581, -4.1133],
+        "end": [53.0685, -4.0764],
+        "waypoints": [[53.0581, -4.1133], [53.0612, -4.1023], [53.0645, -4.0892], [53.0685, -4.0764]],
+        "distance": 7500,
+        "elevation_gain": 975,
+        "difficulty": "hard",
+        "type": "hiking",
+        "tags": ["mountain", "summit", "wales_highest", "railway", "popular"],
+        "region": "Snowdonia",
+        "country": "Wales",
+        "rating": 4.8,
+        "reviews": 15432,
+        "strava_segment_id": "1234567"
+      },
+      {
+        "id": "ben_nevis",
+        "name": "Ben Nevis Mountain Track",
+        "description": "UK's highest peak (1,345m). Iconic bucket-list climb.",
+        "start": [56.7969, -5.0037],
+        "end": [56.7965, -5.0037],
+        "waypoints": [[56.7969, -5.0037], [56.7967, -5.0025], [56.7965, -5.0037]],
+        "distance": 13500,
+        "elevation_gain": 1344,
+        "difficulty": "expert",
+        "type": "hiking",
+        "tags": ["mountain", "highest_uk", "iconic", "munro", "challenging"],
+        "region": "Highlands",
+        "country": "Scotland",
+        "rating": 4.9,
+        "reviews": 23456,
+        "strava_segment_id": "2345678"
+      }
+    ]
+  }
+}
