@@ -2,7 +2,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:math' as math;
 
-/// Enhanced camera controller for trail following mode
+/// Enhanced camera controller for ALL quest types
 /// 
 /// ENHANCEMENTS:
 /// 1. Drive/follow mode with tilted camera (perfect for runners)
@@ -13,19 +13,23 @@ import 'dart:math' as math;
 /// 6. Auto-rotation to face movement direction
 /// 7. Speed-based camera settings
 /// 8. Battery-efficient update throttling
+/// 9. EXTENDED: Works for all quest types (trails, battles, treasure hunts)
+/// 10. Quest-specific camera modes (battle zoom, treasure search view)
 
 enum CameraMode {
   free,       // User controls camera
   follow,     // Follow player, flat view
-  drive,      // Follow player, tilted view (45°)
-  terrain,    // Follow player, steep tilt (60°) for terrain
+  drive,      // Follow player, tilted view (45°) - perfect for trails/navigation
+  terrain,    // Follow player, steep tilt (60°) for terrain visualization
+  battle,     // Battle mode - close zoom, slight tilt for tactical view
+  search,     // Treasure search - overhead view with wide area visibility
 }
 
 class TrailCameraController {
   GoogleMapController? _mapController;
   CameraMode _currentMode = CameraMode.free;
   
-  // Camera settings by mode
+  // Camera settings by mode (enhanced for all quest types)
   static const Map<CameraMode, CameraSettings> _modeSettings = {
     CameraMode.free: CameraSettings(
       zoom: 15.0,
@@ -39,12 +43,22 @@ class TrailCameraController {
     ),
     CameraMode.drive: CameraSettings(
       zoom: 18.0,
-      tilt: 45.0,  // 45° tilt - perfect for viewing trail ahead
+      tilt: 45.0,  // 45° tilt - perfect for trails/navigation
       bearing: 0.0, // Will be calculated from movement
     ),
     CameraMode.terrain: CameraSettings(
       zoom: 19.0,
       tilt: 60.0,  // Steeper tilt for terrain visualization
+      bearing: 0.0,
+    ),
+    CameraMode.battle: CameraSettings(
+      zoom: 19.5,
+      tilt: 30.0,  // Slight tilt for tactical battle view
+      bearing: 0.0, // Faces enemy direction
+    ),
+    CameraMode.search: CameraSettings(
+      zoom: 17.5,
+      tilt: 15.0,  // Slight tilt for treasure search (overhead-ish)
       bearing: 0.0,
     ),
   };
@@ -86,9 +100,43 @@ class TrailCameraController {
     await setCameraMode(CameraMode.terrain, currentPosition: currentPosition);
   }
 
+  /// Enable battle mode (close tactical view for combat)
+  Future<void> enableBattleMode(Position currentPosition, {double? bearingToEnemy}) async {
+    if (bearingToEnemy != null) {
+      _currentBearing = bearingToEnemy;
+    }
+    await setCameraMode(CameraMode.battle, currentPosition: currentPosition);
+  }
+
+  /// Enable search mode (wide overhead view for treasure hunting)
+  Future<void> enableSearchMode(Position currentPosition) async {
+    await setCameraMode(CameraMode.search, currentPosition: currentPosition);
+  }
+
   /// Disable follow modes (return to free mode)
   Future<void> disableFollowMode() async {
     await setCameraMode(CameraMode.free);
+  }
+  
+  /// Quick switch to appropriate mode based on quest type
+  Future<void> enableQuestMode(String questType, Position currentPosition) async {
+    switch (questType.toLowerCase()) {
+      case 'trail':
+      case 'fitness':
+      case 'location':
+        await enableDriveMode(currentPosition);
+        break;
+      case 'battle':
+      case 'enemy':
+        await enableBattleMode(currentPosition);
+        break;
+      case 'treasure':
+      case 'item':
+        await enableSearchMode(currentPosition);
+        break;
+      default:
+        await setCameraMode(CameraMode.follow, currentPosition: currentPosition);
+    }
   }
 
   /// Update camera position based on player movement

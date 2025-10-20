@@ -3,8 +3,34 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'quest_model.g.dart';
 
-enum QuestType { story, daily, weekly, location, fitness, battle, social, treasure }
-enum QuestCategory { main, adventure, side }
+/// ENHANCED Quest Types with more granular categories
+enum QuestType { 
+  story,      // Main storyline
+  daily,      // Daily quests
+  weekly,     // Weekly quests
+  location,   // Visit a location
+  fitness,    // Complete fitness activity
+  battle,     // Defeat enemies
+  social,     // Interact with other players
+  treasure,   // Find items
+  boss,       // Boss encounters (NEW)
+  trail,      // Complete trail routes (NEW)
+  patrol,     // Defeat patrolling enemy (NEW)
+  zone,       // Enter dynamic zone (NEW)
+  achievement,// Long-term goals (NEW)
+}
+
+/// ENHANCED Quest Categories with boss/raid support
+enum QuestCategory { 
+  main,       // Main storyline
+  adventure,  // Adventure quests
+  side,       // Side quests
+  epic,       // Epic/boss quests (NEW)
+  repeatable, // Can be done multiple times (NEW)
+  event,      // Time-limited events (NEW)
+  pvp,        // Player vs player (NEW)
+}
+
 enum QuestStatus { notStarted, inProgress, completed, claimed, abandoned }
 
 @JsonSerializable()
